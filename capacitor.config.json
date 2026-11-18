@@ -1,0 +1,21 @@
+{
+  "appId": "com.kalamcs.sudoku",
+  "appName": "Sudoku",
+  "webDir": "www",
+  "backgroundColor": "#eef2f7",
+  "android": {
+    "backgroundColor": "#eef2f7",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "style": "LIGHT",
+      "insetsHandling": "css"
+    },
+    "SplashScreen": {
+      "launchShowDuration": 400,
+      "backgroundColor": "#eef2f7",
+      "showSpinner": false
+    }
+  }
+}

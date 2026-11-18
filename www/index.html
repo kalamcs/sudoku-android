@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#eef2f7">
+  <meta name="color-scheme" content="light">
+  <title>Sudoku</title>
+  <meta name="description" content="Play Sudoku with notes, undo/redo, autosave, evaluation and best-time tracking.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true">9×9</span>
+      <h1 class="brand__title">Sudoku</h1>
+    </div>
+
+    <div class="topbar__meta">
+      <div class="difficulty-badge" id="difficulty-badge" hidden>
+        Difficulty: <strong id="difficulty-label">Medium</strong>
+      </div>
+      <div class="timer" id="timer" aria-label="Elapsed time" hidden>00:00</div>
+      <button type="button" id="menu-btn" class="btn btn--menu" title="Back to start screen (M)" hidden>☰ Menu</button>
+    </div>
+  </header>
+
+  <main class="home" id="home-screen">
+    <section class="home-intro">
+      <p class="home-eyebrow">Sudoku</p>
+      <h2 class="home-title">Take a break.<br>Solve a puzzle.</h2>
+      <p class="home-subtitle">
+        Choose a difficulty to begin. The timer starts only when your puzzle is ready —
+        browse your stats first and play at your own pace.
+      </p>
+      <div class="home-difficulties" id="home-difficulties" role="group" aria-label="Start a new game">
+        <button type="button" class="home-difficulty" data-difficulty="easy">
+          <span class="home-difficulty__name">Easy</span>
+          <span class="home-difficulty__clues">40–45 clues</span>
+          <span class="home-difficulty__cta">Start →</span>
+        </button>
+        <button type="button" class="home-difficulty" data-difficulty="medium">
+          <span class="home-difficulty__name">Medium</span>
+          <span class="home-difficulty__clues">32–37 clues</span>
+          <span class="home-difficulty__cta">Start →</span>
+        </button>
+        <button type="button" class="home-difficulty" data-difficulty="hard">
+          <span class="home-difficulty__name">Hard</span>
+          <span class="home-difficulty__clues">26–30 clues</span>
+          <span class="home-difficulty__cta">Start →</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="panel home-resume" id="resume-card" hidden>
+      <h2>Continue your game</h2>
+      <p class="home-resume__summary" id="resume-summary"></p>
+      <div class="home-resume__actions">
+        <button type="button" id="resume-game-btn" class="btn btn--primary">Resume</button>
+        <button type="button" id="discard-game-btn" class="btn">Discard</button>
+      </div>
+    </section>
+
+    <section class="panel home-stats">
+      <h2>Your statistics</h2>
+      <table class="home-stats__table">
+        <thead>
+          <tr>
+            <th scope="col">Difficulty</th>
+            <th scope="col">Best</th>
+            <th scope="col">Average</th>
+            <th scope="col">Solved</th>
+            <th scope="col">Best achieved</th>
+          </tr>
+        </thead>
+        <tbody id="home-stats-body"></tbody>
+      </table>
+      <p class="panel__text" id="home-stats-empty">No solved puzzles yet — your first result will appear here.</p>
+    </section>
+  </main>
+
+  <main class="layout" id="game-screen" hidden>
+    <section class="board-card" aria-label="Sudoku game">
+      <div class="board-wrap">
+        <div id="sudoku-grid" class="sudoku-grid" role="grid" aria-label="Sudoku 9 by 9 board"></div>
+      </div>
+
+      <div id="status-banner" class="status-banner" role="status" hidden></div>
+
+      <div class="toolbar">
+        <button type="button" id="undo-btn" class="btn" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
+        <button type="button" id="redo-btn" class="btn" title="Redo (Ctrl+Y)" disabled>↷ Redo</button>
+        <button type="button" id="notes-btn" class="btn btn--toggle" aria-pressed="false" title="Toggle notes mode (N)">✎ Notes: Off</button>
+        <button type="button" id="auto-notes-btn" class="btn" title="Fill every empty cell with its possible candidates (A)">✎ Auto notes</button>
+        <button type="button" id="erase-btn" class="btn" title="Erase cell (Backspace)">⌫ Erase</button>
+        <button type="button" id="pause-btn" class="btn" title="Pause game (P)">⏸ Pause</button>
+        <button type="button" id="new-game-btn" class="btn btn--primary" title="Start a new game">＋ New Game</button>
+      </div>
+
+      <div class="numpad" id="numpad" role="group" aria-label="Number pad"></div>
+
+      <p class="hint">
+        Select a cell, then press <kbd>1</kbd>–<kbd>9</kbd> to fill it.
+        <kbd>N</kbd> notes · <kbd>A</kbd> auto notes · <kbd>P</kbd> pause ·
+        <kbd>Backspace</kbd> erase · arrows move.
+      </p>
+    </section>
+
+    <aside class="sidebar">
+      <section class="panel">
+        <h2>New game</h2>
+        <p class="panel__text">Pick a difficulty to start a fresh puzzle.</p>
+        <div class="difficulty-options" id="difficulty-options" role="group" aria-label="Choose difficulty">
+          <button type="button" class="difficulty-btn" data-difficulty="easy">
+            <span class="difficulty-btn__name">Easy</span>
+            <span class="difficulty-btn__meta">40–45 clues</span>
+          </button>
+          <button type="button" class="difficulty-btn" data-difficulty="medium">
+            <span class="difficulty-btn__name">Medium</span>
+            <span class="difficulty-btn__meta">32–37 clues</span>
+          </button>
+          <button type="button" class="difficulty-btn" data-difficulty="hard">
+            <span class="difficulty-btn__name">Hard</span>
+            <span class="difficulty-btn__meta">26–30 clues</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Best times</h2>
+        <table class="stats-table">
+          <thead>
+            <tr>
+              <th scope="col">Difficulty</th>
+              <th scope="col">Best</th>
+              <th scope="col">Achieved</th>
+              <th scope="col">Wins</th>
+            </tr>
+          </thead>
+          <tbody id="stats-body"></tbody>
+        </table>
+        <p class="panel__text" id="stats-summary">No games won yet — good luck!</p>
+      </section>
+
+      <section class="panel panel--muted">
+        <h2>How it works</h2>
+        <ul class="tips">
+          <li><strong>Notes</strong> mark candidates without filling the cell.</li>
+          <li><strong>Undo/redo</strong> rewinds all the way to the starting puzzle.</li>
+          <li><strong>Autosave</strong> keeps your progress in browser cookies.</li>
+          <li>The puzzle is checked automatically once every cell is filled.</li>
+        </ul>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <span>Progress saves automatically in this browser.</span>
+    <span id="save-status" class="save-status">Autosave ready</span>
+  </footer>
+
+  <div id="result-overlay" class="overlay" hidden>
+    <div class="overlay__card" role="dialog" aria-modal="true" aria-labelledby="result-title" aria-describedby="result-message">
+      <div class="overlay__icon" id="result-icon" aria-hidden="true">🎉</div>
+      <h2 id="result-title">Puzzle solved!</h2>
+      <p id="result-message" class="overlay__message"></p>
+      <div class="result-stats" id="result-stats"></div>
+      <div class="overlay__actions">
+        <button type="button" id="result-primary" class="btn btn--primary">New game</button>
+        <button type="button" id="result-close" class="btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pause-overlay" class="overlay" hidden>
+    <div class="overlay__card" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+      <div class="overlay__icon overlay__icon--pause" aria-hidden="true">⏸</div>
+      <h2 id="pause-title">Game paused</h2>
+      <p id="pause-message" class="overlay__message">The timer is stopped. Resume when you are ready.</p>
+      <div class="result-stats" id="pause-stats"></div>
+      <div class="overlay__actions">
+        <button type="button" id="pause-resume" class="btn btn--primary">Resume</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading-overlay" class="overlay" hidden>
+    <div class="overlay__card overlay__card--loading" role="status" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <p>Generating a new puzzle…</p>
+    </div>
+  </div>
+
+  <script src="generator.js"></script>
+  <script src="app.js"></script>
+  <script src="native.js"></script>
+</body>
+</html>

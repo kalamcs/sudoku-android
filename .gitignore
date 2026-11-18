@@ -1,0 +1,24 @@
+# dependencies
+node_modules/
+
+# generated web bundle (npm run build:native)
+www/native.js
+
+# Android build output
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/local.properties
+android/captures/
+*.iml
+*.hprof
+
+# signing material — never commit these
+*.keystore
+*.jks
+keystore.properties
+
+# tooling / OS
+.DS_Store
+.capacitor/
