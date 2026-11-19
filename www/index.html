@@ -6,13 +6,23 @@
   <meta name="theme-color" content="#eef2f7">
   <meta name="color-scheme" content="light">
   <title>Sudoku</title>
-  <meta name="description" content="Play Sudoku with notes, undo/redo, autosave, evaluation and best-time tracking.">
+  <meta name="description" content="Play Sudoku with notes, undo/redo, autosave and best-time tracking.">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="topbar">
+    <button type="button" id="menu-btn" class="icon-btn" aria-label="Open menu" aria-expanded="false" hidden>
+      <span class="icon-btn__bars" aria-hidden="true"><span></span><span></span><span></span></span>
+    </button>
+
     <div class="brand">
-      <span class="brand__mark" aria-hidden="true">9×9</span>
+      <span class="brand__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
+          <rect x="2.5" y="2.5" width="19" height="19" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/>
+          <path d="M8.5 2.5v19M15.5 2.5v19M2.5 8.5h19M2.5 15.5h19" stroke="currentColor" stroke-width="1.8"/>
+          <rect x="8.5" y="8.5" width="7" height="7" fill="currentColor" opacity="0.35"/>
+        </svg>
+      </span>
       <h1 class="brand__title">Sudoku</h1>
     </div>
 
@@ -21,7 +31,6 @@
         Difficulty: <strong id="difficulty-label">Medium</strong>
       </div>
       <div class="timer" id="timer" aria-label="Elapsed time" hidden>00:00</div>
-      <button type="button" id="menu-btn" class="btn btn--menu" title="Back to start screen (M)" hidden>☰ Menu</button>
     </div>
   </header>
 
@@ -94,60 +103,25 @@
         <button type="button" id="auto-notes-btn" class="btn" title="Fill every empty cell with its possible candidates (A)">✎ Auto notes</button>
         <button type="button" id="erase-btn" class="btn" title="Erase cell (Backspace)">⌫ Erase</button>
         <button type="button" id="pause-btn" class="btn" title="Pause game (P)">⏸ Pause</button>
-        <button type="button" id="new-game-btn" class="btn btn--primary" title="Start a new game">＋ New Game</button>
       </div>
 
       <div class="numpad" id="numpad" role="group" aria-label="Number pad"></div>
 
       <p class="hint">
-        Select a cell, then press <kbd>1</kbd>–<kbd>9</kbd> to fill it.
-        <kbd>N</kbd> notes · <kbd>A</kbd> auto notes · <kbd>P</kbd> pause ·
-        <kbd>Backspace</kbd> erase · arrows move.
+        Tap a cell, then a number to fill it. Tap a given (bold) cell and press a
+        number to highlight where it appears. <kbd>N</kbd> notes ·
+        <kbd>A</kbd> auto notes · <kbd>P</kbd> pause · <kbd>Backspace</kbd> erase.
       </p>
     </section>
 
     <aside class="sidebar">
-      <section class="panel">
-        <h2>New game</h2>
-        <p class="panel__text">Pick a difficulty to start a fresh puzzle.</p>
-        <div class="difficulty-options" id="difficulty-options" role="group" aria-label="Choose difficulty">
-          <button type="button" class="difficulty-btn" data-difficulty="easy">
-            <span class="difficulty-btn__name">Easy</span>
-            <span class="difficulty-btn__meta">40–45 clues</span>
-          </button>
-          <button type="button" class="difficulty-btn" data-difficulty="medium">
-            <span class="difficulty-btn__name">Medium</span>
-            <span class="difficulty-btn__meta">32–37 clues</span>
-          </button>
-          <button type="button" class="difficulty-btn" data-difficulty="hard">
-            <span class="difficulty-btn__name">Hard</span>
-            <span class="difficulty-btn__meta">26–30 clues</span>
-          </button>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2>Best times</h2>
-        <table class="stats-table">
-          <thead>
-            <tr>
-              <th scope="col">Difficulty</th>
-              <th scope="col">Best</th>
-              <th scope="col">Achieved</th>
-              <th scope="col">Wins</th>
-            </tr>
-          </thead>
-          <tbody id="stats-body"></tbody>
-        </table>
-        <p class="panel__text" id="stats-summary">No games won yet — good luck!</p>
-      </section>
-
       <section class="panel panel--muted">
         <h2>How it works</h2>
         <ul class="tips">
           <li><strong>Notes</strong> mark candidates without filling the cell.</li>
           <li><strong>Undo/redo</strong> rewinds all the way to the starting puzzle.</li>
-          <li><strong>Autosave</strong> keeps your progress in browser cookies.</li>
+          <li><strong>Autosave</strong> keeps your progress on this device.</li>
+          <li>A digit that breaks a row, column or box rule turns <strong>red</strong>.</li>
           <li>The puzzle is checked automatically once every cell is filled.</li>
         </ul>
       </section>
@@ -155,9 +129,76 @@
   </main>
 
   <footer class="footer">
-    <span>Progress saves automatically in this browser.</span>
-    <span id="save-status" class="save-status">Autosave ready</span>
+    <span>Progress saves automatically on this device.</span>
+    <span class="footer__actions">
+      <button type="button" id="feedback-btn" class="link-btn">Send feedback</button>
+      <span id="save-status" class="save-status">Autosave ready</span>
+    </span>
   </footer>
+
+  <!-- Side menu -->
+  <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+  <aside id="menu-drawer" class="drawer" aria-label="Game menu" aria-hidden="true">
+    <div class="drawer__head">
+      <span class="drawer__eyebrow">Sudoku</span>
+      <strong class="drawer__difficulty" id="drawer-difficulty">Medium</strong>
+    </div>
+
+    <nav class="drawer__nav">
+      <button type="button" class="drawer__item" id="drawer-pause">
+        <span class="drawer__icon" aria-hidden="true">⏸</span> <span id="drawer-pause-label">Pause</span>
+      </button>
+      <button type="button" class="drawer__item" id="drawer-reset">
+        <span class="drawer__icon" aria-hidden="true">↺</span> Reset board
+      </button>
+      <button type="button" class="drawer__item" id="drawer-new">
+        <span class="drawer__icon" aria-hidden="true">＋</span> New game
+      </button>
+      <button type="button" class="drawer__item" id="drawer-feedback">
+        <span class="drawer__icon" aria-hidden="true">✉</span> Send feedback
+      </button>
+    </nav>
+
+    <button type="button" class="btn drawer__close" id="drawer-close">Close</button>
+  </aside>
+
+  <!-- Feedback form -->
+  <div id="feedback-overlay" class="overlay overlay--top" hidden>
+    <div class="overlay__card" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+      <h2 id="feedback-title">Send feedback</h2>
+      <p class="overlay__message">
+        This opens a prefilled bug report on GitHub in your browser. A GitHub
+        account is required to submit it.
+      </p>
+
+      <form id="feedback-form" class="feedback">
+        <label class="feedback__field">
+          <span>Type</span>
+          <select id="feedback-type">
+            <option value="bug">Bug report</option>
+            <option value="feature">Feature request</option>
+          </select>
+        </label>
+
+        <label class="feedback__field">
+          <span>Subject</span>
+          <input id="feedback-subject" type="text" maxlength="90" placeholder="What went wrong?" required>
+        </label>
+
+        <label class="feedback__field">
+          <span>Details</span>
+          <textarea id="feedback-details" rows="5" placeholder="What did you do, what did you expect, and what happened?" required></textarea>
+        </label>
+
+        <p id="feedback-error" class="feedback__error" hidden></p>
+
+        <div class="overlay__actions">
+          <button type="submit" class="btn btn--primary" id="feedback-submit">Open on GitHub</button>
+          <button type="button" class="btn" id="feedback-cancel">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <div id="result-overlay" class="overlay" hidden>
     <div class="overlay__card" role="dialog" aria-modal="true" aria-labelledby="result-title" aria-describedby="result-message">
@@ -166,7 +207,7 @@
       <p id="result-message" class="overlay__message"></p>
       <div class="result-stats" id="result-stats"></div>
       <div class="overlay__actions">
-        <button type="button" id="result-primary" class="btn btn--primary">New game</button>
+        <button type="button" id="result-primary" class="btn btn--primary">Back to home</button>
         <button type="button" id="result-close" class="btn">Close</button>
       </div>
     </div>

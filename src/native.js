@@ -7,6 +7,7 @@
  * quick desktop checks.
  */
 import { App } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
 
 const isNative = () => window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
 
@@ -29,17 +30,35 @@ async function initNative() {
     });
   }
 
-  // Android back button: pause first, then return to the home screen, and
-  // only close the app when there is nothing left to go back to.
+  // Expose the installed version so feedback reports can include it.
+  try {
+    const info = await App.getInfo();
+    window.SUDOKU_APP_INFO = {
+      version: info.version,
+      build: info.build,
+      name: info.name,
+    };
+  } catch (err) {
+    // Version info is optional; the feedback form still works without it.
+  }
+
+  // GitHub feedback links must leave the WebView and open in the system browser.
+  document.addEventListener('sudoku:open-url', (event) => {
+    const url = event.detail && event.detail.url;
+    if (!url) return;
+    Browser.open({ url }).catch((err) => {
+      console.error('Sudoku: could not open browser', err);
+      window.open(url, '_blank', 'noopener');
+    });
+  });
+
+  // Android back button: close whichever layer is on top, then pause, then
+  // return home, and only close the app when there is nothing left to go back to.
   await App.addListener('backButton', ({ canGoBack }) => {
     const g = game();
     if (!g) return;
 
-    const resultOpen = g.dom && g.dom.resultOverlay && !g.dom.resultOverlay.hidden;
-    if (resultOpen) {
-      g.dom.resultOverlay.hidden = true;
-      return;
-    }
+    if (g.closeOverlays && g.closeOverlays()) return;
 
     if (g.view === 'game' && !g.finished) {
       if (g.paused) {

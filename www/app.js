@@ -169,6 +169,9 @@
     this.redoStack = [];
 
     this.errors = new Set();
+    this.conflicts = new Set(); // user cells that duplicate a row/column/box value
+    this.highlightDigit = 0; // 1..9 while highlighting a given cell's digit
+    this.menuOpen = false;
     this.finished = false;
     this.generating = false;
     this.paused = false;
@@ -255,12 +258,26 @@
     this.dom.autoNotes = $('auto-notes-btn');
     this.dom.erase = $('erase-btn');
     this.dom.pause = $('pause-btn');
-    this.dom.newGame = $('new-game-btn');
     this.dom.numpad = $('numpad');
-    this.dom.statsBody = $('stats-body');
-    this.dom.statsSummary = $('stats-summary');
     this.dom.saveStatus = $('save-status');
     this.dom.statusBanner = $('status-banner');
+    this.dom.drawer = $('menu-drawer');
+    this.dom.drawerBackdrop = $('drawer-backdrop');
+    this.dom.drawerPause = $('drawer-pause');
+    this.dom.drawerPauseLabel = $('drawer-pause-label');
+    this.dom.drawerReset = $('drawer-reset');
+    this.dom.drawerNew = $('drawer-new');
+    this.dom.drawerFeedback = $('drawer-feedback');
+    this.dom.drawerClose = $('drawer-close');
+    this.dom.drawerDifficulty = $('drawer-difficulty');
+    this.dom.feedbackBtn = $('feedback-btn');
+    this.dom.feedbackOverlay = $('feedback-overlay');
+    this.dom.feedbackForm = $('feedback-form');
+    this.dom.feedbackType = $('feedback-type');
+    this.dom.feedbackSubject = $('feedback-subject');
+    this.dom.feedbackDetails = $('feedback-details');
+    this.dom.feedbackError = $('feedback-error');
+    this.dom.feedbackCancel = $('feedback-cancel');
 
     this.dom.resultOverlay = $('result-overlay');
     this.dom.resultIcon = $('result-icon');
@@ -374,29 +391,50 @@
     this.dom.pauseResume.addEventListener('click', function () {
       self.resumeGame();
     });
-    this.dom.newGame.addEventListener('click', function () {
-      if (self.finished) {
-        self.showHome();
-        return;
-      }
-      self.requestNewGame(self.difficulty);
-    });
 
-    this.dom.difficultyOptions.addEventListener('click', function (event) {
-      var button = event.target.closest('.difficulty-btn');
-      if (!button) return;
-      var difficulty = button.dataset.difficulty;
-      if (DIFFICULTIES.indexOf(difficulty) === -1) return;
-      self.requestNewGame(difficulty);
+    this.dom.menuBtn.addEventListener('click', function () {
+      self.toggleMenu();
+    });
+    this.dom.drawerClose.addEventListener('click', function () {
+      self.closeMenu();
+    });
+    this.dom.drawerBackdrop.addEventListener('click', function () {
+      self.closeMenu();
+    });
+    this.dom.drawerPause.addEventListener('click', function () {
+      self.closeMenu();
+      self.togglePause();
+    });
+    this.dom.drawerReset.addEventListener('click', function () {
+      self.closeMenu();
+      self.resetBoard();
+    });
+    this.dom.drawerNew.addEventListener('click', function () {
+      self.closeMenu();
+      self.goHome();
+    });
+    this.dom.drawerFeedback.addEventListener('click', function () {
+      self.closeMenu();
+      self.openFeedback();
+    });
+    this.dom.feedbackBtn.addEventListener('click', function () {
+      self.openFeedback();
+    });
+    this.dom.feedbackCancel.addEventListener('click', function () {
+      self.closeFeedback();
+    });
+    this.dom.feedbackForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      self.submitFeedback();
+    });
+    this.dom.feedbackOverlay.addEventListener('click', function (event) {
+      if (event.target === self.dom.feedbackOverlay) self.closeFeedback();
     });
 
     this.dom.homeDifficulties.addEventListener('click', function (event) {
       var button = event.target.closest('.home-difficulty');
       if (!button) return;
       self.handleHomeDifficulty(button.dataset.difficulty);
-    });
-    this.dom.menuBtn.addEventListener('click', function () {
-      self.goHome();
     });
     this.dom.resumeBtn.addEventListener('click', function () {
       self.resumeFromHome();
@@ -426,9 +464,15 @@
   // ----- keyboard ----------------------------------------------------------
 
   SudokuGame.prototype.handleKeyDown = function (event) {
-    if (!this.puzzle || this.view !== 'game') return;
-
     var key = event.key;
+
+    // Escape dismisses the topmost layer, whatever screen is showing.
+    if (key === 'Escape' && this.closeOverlays()) {
+      event.preventDefault();
+      return;
+    }
+
+    if (!this.puzzle || this.view !== 'game') return;
 
     if (this.paused) {
       if (key === 'p' || key === 'P' || key === 'Escape') {
@@ -438,13 +482,7 @@
       return;
     }
 
-    if (key === 'Escape') {
-      if (!this.dom.resultOverlay.hidden) {
-        event.preventDefault();
-        this.hideResult();
-      }
-      return;
-    }
+    if (key === 'Escape') return;
 
     if (!this.dom.resultOverlay.hidden || !this.dom.loadingOverlay.hidden) return;
 
@@ -480,7 +518,7 @@
 
     if (key === 'm' || key === 'M') {
       event.preventDefault();
-      this.goHome();
+      this.toggleMenu();
       return;
     }
 
@@ -542,7 +580,9 @@
   SudokuGame.prototype.selectCell = function (index) {
     if (index < 0 || index >= CELL_COUNT) return;
     this.selected = index;
+    this.highlightDigit = 0; // tapping a cell leaves digit-highlight mode
     this.renderBoard();
+    this.updateNumpad();
     var cell = this.cells[index];
     if (cell) {
       try {
@@ -584,7 +624,11 @@
 
     var selected = this.selected;
     var peers = selected === null ? null : this.peerSet(selected);
-    var selectedValue = selected === null ? 0 : this.values[selected];
+    // Pressing a digit while a given (bold) cell is selected highlights every
+    // occurrence of that digit without editing the board.
+    var selectedValue = this.highlightDigit ||
+      (selected === null ? 0 : this.values[selected]);
+    this.conflicts = this.computeConflicts();
 
     for (var index = 0; index < CELL_COUNT; index++) {
       var cell = this.cells[index];
@@ -606,6 +650,7 @@
       }
 
       if (this.errors.has(index)) classes.push('cell--error');
+      if (this.conflicts.has(index)) classes.push('cell--conflict');
 
       cell.className = classes.join(' ');
       cell.__valueEl.textContent = value !== 0 ? String(value) : '';
@@ -637,6 +682,7 @@
       } else {
         label += 'empty';
       }
+      if (this.conflicts.has(index)) label += ', conflicts with another ' + value;
       cell.setAttribute('aria-label', label);
     }
 
@@ -668,19 +714,23 @@
 
     var counts = this.digitCounts();
     var locked = this.finished || this.generating || this.paused;
+    var highlighting = this.highlightDigit > 0;
 
     this.numpadButtons.forEach(function (button) {
       var digit = Number(button.dataset.n);
       var complete = counts[digit] >= 9;
-      var disabled = locked || complete;
+      var disabled = locked || (complete && !highlighting);
 
       button.disabled = disabled;
       button.classList.toggle('numpad__btn--complete', complete);
+      button.classList.toggle('numpad__btn--active', digit === this.highlightDigit);
       button.setAttribute(
         'aria-label',
-        complete ? 'Digit ' + digit + ' is complete' : 'Enter ' + digit
+        digit === this.highlightDigit
+          ? 'Highlighting ' + digit
+          : complete ? 'Digit ' + digit + ' is complete' : 'Enter ' + digit
       );
-    });
+    }, this);
   };
 
   SudokuGame.prototype.renderTimer = function () {
@@ -692,10 +742,15 @@
     if (this.dom.difficultyLabel) {
       this.dom.difficultyLabel.textContent = capitalize(this.difficulty);
     }
-    this.dom.difficultyButtons.forEach(function (button) {
-      var isActive = button.dataset.difficulty === this.difficulty;
-      button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-    }, this);
+    if (this.dom.difficultyButtons) {
+      this.dom.difficultyButtons.forEach(function (button) {
+        var isActive = button.dataset.difficulty === this.difficulty;
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      }, this);
+    }
+    if (this.dom.drawerDifficulty) {
+      this.dom.drawerDifficulty.textContent = capitalize(this.difficulty);
+    }
     document.title = 'Sudoku — ' + capitalize(this.difficulty);
   };
 
@@ -879,7 +934,11 @@
     }
 
     this.view = 'home';
+    this.highlightDigit = 0;
+    this.menuOpen = false;
     this.hideResult();
+    this.closeMenu();
+    this.closeFeedback();
 
     if (this.dom.homeScreen) this.dom.homeScreen.hidden = false;
     if (this.dom.gameScreen) this.dom.gameScreen.hidden = true;
@@ -906,8 +965,205 @@
     this.renderTimer();
   };
 
+  // ----- menu ---------------------------------------------------------------
+
+  SudokuGame.prototype.openMenu = function () {
+    if (this.view !== 'game' || this.generating) return;
+
+    this.menuOpen = true;
+    if (this.dom.drawer) {
+      this.dom.drawer.classList.add('drawer--open');
+      this.dom.drawer.setAttribute('aria-hidden', 'false');
+    }
+    if (this.dom.drawerBackdrop) this.dom.drawerBackdrop.hidden = false;
+    if (this.dom.menuBtn) this.dom.menuBtn.setAttribute('aria-expanded', 'true');
+    if (this.dom.drawerPauseLabel) {
+      this.dom.drawerPauseLabel.textContent = this.paused ? 'Resume' : 'Pause';
+    }
+    if (this.dom.drawerDifficulty) {
+      this.dom.drawerDifficulty.textContent = capitalize(this.difficulty);
+    }
+    if (this.dom.drawerReset) this.dom.drawerReset.disabled = this.finished;
+  };
+
+  SudokuGame.prototype.closeMenu = function () {
+    this.menuOpen = false;
+    if (this.dom.drawer) {
+      this.dom.drawer.classList.remove('drawer--open');
+      this.dom.drawer.setAttribute('aria-hidden', 'true');
+    }
+    if (this.dom.drawerBackdrop) this.dom.drawerBackdrop.hidden = true;
+    if (this.dom.menuBtn) this.dom.menuBtn.setAttribute('aria-expanded', 'false');
+  };
+
+  SudokuGame.prototype.toggleMenu = function () {
+    if (this.menuOpen) this.closeMenu();
+    else this.openMenu();
+  };
+
+  /** Close the topmost dismissible layer; used by the Android back button. */
+  SudokuGame.prototype.closeOverlays = function () {
+    if (this.dom.feedbackOverlay && !this.dom.feedbackOverlay.hidden) {
+      this.closeFeedback();
+      return true;
+    }
+    if (this.menuOpen) {
+      this.closeMenu();
+      return true;
+    }
+    if (this.dom.resultOverlay && !this.dom.resultOverlay.hidden) {
+      this.hideResult();
+      return true;
+    }
+    return false;
+  };
+
+  // ----- feedback -----------------------------------------------------------
+
+  var FEEDBACK_REPO = 'kalamcs/sudoku-android';
+
+  SudokuGame.prototype.openFeedback = function () {
+    if (!this.dom.feedbackOverlay) return;
+    if (this.dom.feedbackError) this.dom.feedbackError.hidden = true;
+    this.dom.feedbackOverlay.hidden = false;
+
+    // Writing a report shouldn't count towards the solve time.
+    if (this.view === 'game' && !this.paused && !this.finished && !this.generating) {
+      this.pauseGame('feedback');
+    }
+
+    if (this.dom.feedbackSubject) {
+      var subject = this.dom.feedbackSubject;
+      window.setTimeout(function () {
+        try {
+          subject.focus({ preventScroll: true });
+        } catch (err) {
+          subject.focus();
+        }
+      }, 30);
+    }
+  };
+
+  SudokuGame.prototype.closeFeedback = function () {
+    var wasOpen = this.dom.feedbackOverlay && !this.dom.feedbackOverlay.hidden;
+    if (this.dom.feedbackOverlay) this.dom.feedbackOverlay.hidden = true;
+    if (this.dom.feedbackError) this.dom.feedbackError.hidden = true;
+
+    // Writing feedback only paused the clock; resume when the form closes.
+    if (wasOpen && this.view === 'game' && this.paused && this.pausedReason === 'feedback') {
+      this.resumeGame();
+    }
+  };
+
+  SudokuGame.prototype.buildFeedbackUrl = function (type, subject, details) {
+    var info = window.SUDOKU_APP_INFO || {};
+    var lines = [
+      details,
+      '',
+      '---',
+      'App: Sudoku for Android' + (info.version ? ' ' + info.version : '') +
+        (info.build ? ' (build ' + info.build + ')' : ''),
+      'Platform: ' + (window.Capacitor && window.Capacitor.getPlatform ? window.Capacitor.getPlatform() : 'web'),
+      'Device: ' + navigator.userAgent
+    ];
+
+    var params = new URLSearchParams();
+    params.set('title', (type === 'feature' ? '[Feature] ' : '[Bug] ') + subject);
+    params.set('body', lines.join('\n'));
+    params.set('labels', type === 'feature' ? 'enhancement' : 'bug');
+    return 'https://github.com/' + FEEDBACK_REPO + '/issues/new?' + params.toString();
+  };
+
+  SudokuGame.prototype.submitFeedback = function () {
+    if (!this.dom.feedbackSubject || !this.dom.feedbackDetails) return;
+
+    var type = this.dom.feedbackType && this.dom.feedbackType.value === 'feature' ? 'feature' : 'bug';
+    var subject = this.dom.feedbackSubject.value.trim();
+    var details = this.dom.feedbackDetails.value.trim();
+
+    if (!subject || !details) {
+      if (this.dom.feedbackError) {
+        this.dom.feedbackError.textContent = 'Please add a subject and some details.';
+        this.dom.feedbackError.hidden = false;
+      }
+      return;
+    }
+
+    var url = this.buildFeedbackUrl(type, subject, details);
+    this.closeFeedback();
+    if (this.dom.feedbackForm) this.dom.feedbackForm.reset();
+    this.openExternalUrl(url);
+  };
+
+  SudokuGame.prototype.openExternalUrl = function (url) {
+    var native = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+    if (native) {
+      // Handled by the native bundle, which opens the system browser.
+      document.dispatchEvent(new CustomEvent('sudoku:open-url', { detail: { url: url } }));
+      return;
+    }
+    window.open(url, '_blank', 'noopener');
+  };
+
+  // ----- board utilities ----------------------------------------------------
+
+  /**
+   * User-entered digits that repeat a value in their row, column or box.
+   * Givens are never flagged: the starting puzzle always satisfies the rules.
+   */
+  SudokuGame.prototype.computeConflicts = function () {
+    var conflicts = new Set();
+    if (!this.values || !this.puzzle) return conflicts;
+
+    for (var index = 0; index < CELL_COUNT; index++) {
+      var value = this.values[index];
+      if (value === 0 || this.puzzle[index] !== 0) continue;
+
+      var clash = false;
+      this.peerSet(index).forEach(function (peer) {
+        if (this.values[peer] === value) clash = true;
+      }, this);
+      if (clash) conflicts.add(index);
+    }
+    return conflicts;
+  };
+
+  /** Clear every entry and note, and restart the clock on the same puzzle. */
+  SudokuGame.prototype.resetBoard = function () {
+    if (!this.puzzle || !this.values || this.generating) return;
+    if (!window.confirm('Reset the board? Your entries, notes and the timer will be cleared.')) return;
+
+    this.values = this.puzzle.slice();
+    this.notes = [];
+    for (var i = 0; i < CELL_COUNT; i++) this.notes.push(new Set());
+
+    this.errors = new Set();
+    this.conflicts = new Set();
+    this.highlightDigit = 0;
+    this.finished = false;
+    this.paused = false;
+    this.pausedReason = null;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.selected = this.firstEmptyIndex();
+    this.setNotesMode(false);
+
+    this.elapsedBefore = 0;
+    this.resumeAt = null;
+
+    this.hideResult();
+    if (this.dom.pauseOverlay) this.dom.pauseOverlay.hidden = true;
+
+    this.renderAll();
+    this.startTimer();
+    this.saveNow();
+    this.showBanner('Board reset — timer restarted.', 'success');
+  };
+
   SudokuGame.prototype.goHome = function () {
     if (this.generating) return;
+    this.closeMenu();
+    this.closeFeedback();
     if (this.view === 'home') {
       this.refreshHome();
       return;
@@ -977,6 +1233,8 @@
     this.notes = null;
     this.selected = null;
     this.errors = new Set();
+    this.conflicts = new Set();
+    this.highlightDigit = 0;
     this.finished = false;
     this.paused = false;
     this.pausedReason = null;
@@ -1051,7 +1309,8 @@
     this.updatePauseUI();
     this.updateNumpad();
     this.updateUndoButtons();
-    this.focusPauseResume();
+    // The feedback dialog manages its own focus; the pause screen is not shown.
+    if (reason !== 'feedback') this.focusPauseResume();
     this.saveNow();
   };
 
@@ -1087,12 +1346,16 @@
   SudokuGame.prototype.updatePauseUI = function () {
     if (!this.dom.pauseOverlay) return;
 
-    this.dom.pauseOverlay.hidden = !this.paused;
+    this.dom.pauseOverlay.hidden = !this.paused || this.pausedReason === 'feedback';
 
     if (this.dom.pause) {
       this.dom.pause.disabled = this.finished || this.generating;
       this.dom.pause.setAttribute('aria-pressed', this.paused ? 'true' : 'false');
       this.dom.pause.textContent = this.paused ? '▶ Resume' : '⏸ Pause';
+    }
+
+    if (this.dom.drawerPauseLabel) {
+      this.dom.drawerPauseLabel.textContent = this.paused ? 'Resume' : 'Pause';
     }
 
     if (this.dom.autoNotes) {
@@ -1172,6 +1435,8 @@
         for (var i = 0; i < CELL_COUNT; i++) self.notes.push(new Set());
 
         self.errors = new Set();
+        self.conflicts = new Set();
+        self.highlightDigit = 0;
         self.finished = false;
         self.paused = false;
         self.pausedReason = null;
@@ -1245,7 +1510,20 @@
 
   SudokuGame.prototype.applyNumber = function (number) {
     if (this.selected === null || this.paused) return;
-    if (this.digitCounts()[number] >= 9) return; // digit already complete
+    if (this.finished || this.generating || !this.values) return;
+
+    if (this.puzzle[this.selected] !== 0) {
+      // Pressing a digit while a given (bold) cell is selected highlights every
+      // occurrence of that digit on the board. The given itself never changes.
+      this.highlightDigit = number;
+      this.renderBoard();
+      this.updateNumpad();
+      return;
+    }
+
+    // While highlighting, complete digits stay pressable so the user can keep
+    // switching which digit is highlighted.
+    if (!this.highlightDigit && this.digitCounts()[number] >= 9) return;
     if (this.notesMode) {
       this.toggleNote(this.selected, number);
     } else {
@@ -1392,6 +1670,8 @@
     this.pausedReason = null;
     this.pauseTimer();
     this.errors = new Set();
+    this.conflicts = new Set();
+    this.highlightDigit = 0;
 
     var result = this.recordWin(seconds);
 
@@ -1615,6 +1895,8 @@
     this.values = values;
     this.notes = notes;
     this.errors = new Set();
+    this.conflicts = new Set();
+    this.highlightDigit = 0;
     this.finished = false;
     this.undoStack = [];
     this.redoStack = [];
