@@ -1,5 +1,7 @@
 package com.kalamcs.sudoku
 
+import java.util.concurrent.CancellationException
+import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
 internal enum class Difficulty(val label: String, val clues: IntRange) {
@@ -25,10 +27,22 @@ internal data class Puzzle(val difficulty: Difficulty, val givens: IntArray, val
 internal data class HintStep(
     val text: String,
     val technique: Technique? = null,
-    val details: (() -> List<HintStep>)? = null,
+    val details: ((HintBudget) -> List<HintStep>)? = null,
 )
 
 internal data class Hint(val cell: Int, val digit: Int, val technique: Technique, val steps: List<HintStep>)
+
+internal class HintTimedOut : RuntimeException()
+
+internal class HintBudget(timeoutMillis: Long = 1_500) {
+    private val started = System.nanoTime()
+    private val limit = TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+
+    fun check() {
+        if (Thread.currentThread().isInterrupted) throw CancellationException()
+        if (System.nanoTime() - started >= limit) throw HintTimedOut()
+    }
+}
 
 internal object Sudoku {
     const val SIZE = 9
@@ -90,7 +104,7 @@ internal object Sudoku {
 
     private fun candidateBoard(board: IntArray) = IntArray(COUNT) { if (board[it] == 0) candidates(board, it) else 0 }
 
-    fun countSolutions(board: IntArray, limit: Int = 2) = search(board, limit, null, null)
+    fun countSolutions(board: IntArray, limit: Int = 2) = search(board, limit, null)
 
     fun solve(board: IntArray): IntArray? {
         var solution: IntArray? = null
@@ -98,7 +112,19 @@ internal object Sudoku {
         return solution
     }
 
-    private fun search(grid: IntArray, limit: Int, random: Random?, found: ((IntArray) -> Unit)?): Int {
+    fun uniqueSolution(board: IntArray): IntArray? {
+        var solution: IntArray? = null
+        val count = search(board, 2, null) { if (solution == null) solution = it.copyOf() }
+        return if (count == 1) solution else null
+    }
+
+    private fun search(
+        grid: IntArray,
+        limit: Int,
+        random: Random?,
+        budget: HintBudget? = null,
+        found: ((IntArray) -> Unit)? = null,
+    ): Int {
         if (grid.size != COUNT || grid.any { it !in 0..SIZE }) return 0
         val board = grid.copyOf()
         val rows = IntArray(SIZE)
@@ -119,6 +145,7 @@ internal object Sudoku {
 
         var solutions = 0
         fun visit() {
+            budget?.check()
             var pick = -1
             var options = 0
             var smallest = SIZE + 1
@@ -163,7 +190,7 @@ internal object Sudoku {
 
     fun generate(difficulty: Difficulty, random: Random = Random.Default): Puzzle {
         if (difficulty == Difficulty.EXTREME) return vary(extreme.random(random), difficulty, random)
-        repeat(if (difficulty == Difficulty.HARD) 6 else 1) {
+        repeat(6) {
             lateinit var solution: IntArray
             search(IntArray(COUNT), 1, random) { solution = it.copyOf() }
             val givens = solution.copyOf()
@@ -174,11 +201,20 @@ internal object Sudoku {
                 givens[cell] = 0
                 if (countSolutions(givens) == 1) clues-- else givens[cell] = solution[cell]
             }
-            if (difficulty != Difficulty.HARD || (clues in difficulty.clues && canSolveWithoutSearch(givens))) {
+            if (clues in difficulty.clues && (difficulty != Difficulty.HARD || canSolveWithoutSearch(givens))) {
                 return Puzzle(difficulty, givens, solution)
             }
         }
-        return vary(hardFallback, difficulty, random)
+        val fallback = vary(hardFallback, difficulty, random)
+        if (difficulty != Difficulty.HARD) {
+            // Adding true clues to a uniquely solvable puzzle preserves its unique solution.
+            val target = random.nextInt(difficulty.clues.first, difficulty.clues.last + 1)
+            val empty = indexes.filter { fallback.givens[it] == 0 }
+            for (cell in empty.shuffled(random).take(target - (COUNT - empty.size))) {
+                fallback.givens[cell] = fallback.solution[cell]
+            }
+        }
+        return fallback
     }
 
     private fun vary(template: String, difficulty: Difficulty, random: Random): Puzzle {
@@ -250,10 +286,11 @@ internal object Sudoku {
         return null
     }
 
-    private fun analyze(board: IntArray): Analysis {
+    private fun analyze(board: IntArray, budget: HintBudget? = null): Analysis {
         val candidates = candidateBoard(board)
         val eliminations = mutableListOf<Elimination>()
         while (indexes.none { board[it] == 0 && candidates[it] == 0 }) {
+            budget?.check()
             val move = single(candidates)
             if (move != null) return Analysis(move, candidates, eliminations)
             val step = locked(candidates) ?: pair(candidates) ?: break
@@ -365,11 +402,12 @@ internal object Sudoku {
 
     private data class Path(val board: IntArray, val steps: List<HintStep>)
 
-    private fun shortProof(board: IntArray): List<HintStep>? {
+    private fun shortProof(board: IntArray, budget: HintBudget): List<HintStep>? {
         val pending = mutableListOf(Path(board, emptyList()))
         val seen = hashSetOf(board.joinToString(""))
         var index = 0
         while (index < pending.size) {
+            budget.check()
             val (work, steps) = pending[index++]
             val trial = trial(work)
             trial.deadEnd?.let { return steps + it }
@@ -383,16 +421,17 @@ internal object Sudoku {
         return null
     }
 
-    private fun branch(board: IntArray, cell: Int, digit: Int) = HintStep("What if ${name(cell)} is ${digit}?") {
-        contradiction(board.copyOf().apply { this[cell] = digit })
+    private fun branch(board: IntArray, cell: Int, digit: Int) = HintStep("What if ${name(cell)} is ${digit}?") { budget ->
+        contradiction(board.copyOf().apply { this[cell] = digit }, budget)
     }
 
-    private fun contradiction(board: IntArray): List<HintStep> {
-        shortProof(board)?.let { return it }
+    private fun contradiction(board: IntArray, budget: HintBudget): List<HintStep> {
+        shortProof(board, budget)?.let { return it }
         var work = board
         val steps = mutableListOf<HintStep>()
         var trial = trial(work)
         while (trial.deadEnd == null && trial.moves.isNotEmpty()) {
+            budget.check()
             val move = trial.moves.first()
             steps += moveStep(work, move)
             work = work.copyOf().apply { this[move.cell] = move.digit }
@@ -407,10 +446,11 @@ internal object Sudoku {
             digits.map { branch(work, cell, it) }
     }
 
-    fun hint(board: IntArray): Hint? {
+    fun hint(board: IntArray, budget: HintBudget = HintBudget()): Hint? {
+        budget.check()
         if (board.size != COUNT || board.any { it !in 0..SIZE } ||
             indexes.any { cell -> board[cell] != 0 && peers[cell].any { board[it] == board[cell] } }) return null
-        val analysis = analyze(board)
+        val analysis = analyze(board, budget)
         analysis.move?.let { move ->
             val (steps, needs) = evidence(board, move)
             val conclusion = if (move.unit == null) "${move.digit} is the only digit that fits in this cell."
@@ -419,13 +459,15 @@ internal object Sudoku {
         }
         val cell = mostConstrained(analysis.candidates) ?: return null
         val options = digitsIn(candidates(board, cell))
-        val (possible, rejected) = options.partition { digit -> countSolutions(board.copyOf().apply { this[cell] = digit }, 1) > 0 }
+        val (possible, rejected) = options.partition { digit ->
+            search(board.copyOf().apply { this[cell] = digit }, 1, null, budget) > 0
+        }
         val digit = possible.singleOrNull() ?: return null
         val introduction = HintStep("The row, column, and box leave ${join(options)} as candidates here.")
         val trials = if (rejected.size == 1) {
             val assumed = rejected.first()
             listOf(HintStep("Suppose ${assumed} goes in ${name(cell)}.")) +
-                contradiction(board.copyOf().apply { this[cell] = assumed })
+                contradiction(board.copyOf().apply { this[cell] = assumed }, budget)
         } else rejected.map { branch(board, cell, it) }
         return Hint(cell, digit, Technique.CONTRADICTION, listOf(introduction) + trials +
             HintStep("Only ${digit} remains for this cell."))

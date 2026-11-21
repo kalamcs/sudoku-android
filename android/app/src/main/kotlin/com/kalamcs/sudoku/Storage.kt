@@ -23,6 +23,7 @@ internal object SaveFormat {
         .put("n", game.notes.joinToString(".") { Sudoku.digitsIn(it).joinToString("") })
         .put("ms", game.elapsed(now))
         .put("w", if (game.finished) 1 else 0)
+        .put("recordedWin", game.recordedWin)
         .put("z", if (game.paused) 1 else 0)
         .put("cell", game.selected)
         .put("pencil", game.notesMode)
@@ -39,11 +40,12 @@ internal object SaveFormat {
             val difficulty = Difficulty.fromKey(data.optString("d")) ?: return null
             val givens = Sudoku.decode(data.optString("p")) ?: return null
             val values = Sudoku.decode(data.optString("b")) ?: return null
-            if (0 !in givens || Sudoku.countSolutions(givens) != 1) return null
-            val solution = Sudoku.solve(givens) ?: return null
+            if (0 !in givens) return null
+            val solution = Sudoku.uniqueSolution(givens) ?: return null
             val segments = data.optString("n").split('.')
             if (segments.size != Sudoku.COUNT || segments.any { it.length > 9 || it.any { d -> d !in '1'..'9' } }) return null
             val notes = IntArray(Sudoku.COUNT) { cell ->
+                // The puzzle's clues take precedence over entries in older saves.
                 if (givens[cell] != 0) values[cell] = givens[cell]
                 if (values[cell] == 0) segments[cell].fold(0) { mask, digit -> mask or Sudoku.bit(digit - '0') } else 0
             }
@@ -51,7 +53,9 @@ internal object SaveFormat {
             val elapsed = data.optLong("ms", data.optLong("e").coerceIn(0, maxElapsed / 1000) * 1000).coerceIn(0, maxElapsed)
             val cell = data.optInt("cell", values.indexOf(0)).coerceIn(0, Sudoku.COUNT - 1)
             val pruning = readPrunedNotes(data.optJSONObject("prunedNotes"), givens, values)
-            Game(Puzzle(difficulty, givens, solution), values, notes, elapsed, data.optInt("z") == 1, cell, pruning).apply {
+            Game(Puzzle(difficulty, givens, solution), values, notes, elapsed, data.optInt("z") == 1, cell, pruning,
+                recordedWin = data.optBoolean("recordedWin"),
+            ).apply {
                 notesMode = data.optBoolean("pencil")
             }
         }.getOrNull()

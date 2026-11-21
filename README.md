@@ -25,6 +25,9 @@ through 9 exactly once. The starting clues stay fixed.
 - **Hint** counts incorrect entries first and offers to highlight them. On a
   correct board, it explains a forced placement and can select the cell. Open
   the reasoning under a step to see the supporting constraints.
+- **Check for errors** in the game menu reports incorrect entries and offers
+  to highlight them. The timer pauses in the game menu and runs while a hint
+  or an error result is open.
 - **Pause** and Android Back save the puzzle and return to Home. Tap
   **Continue** to pick up where you left off. After waking the phone or
   returning to the app, an open puzzle resumes automatically.
@@ -34,6 +37,9 @@ through 9 exactly once. The starting clues stay fixed.
 - **Screen timeout during a game** follows Android by default. Settings can
   keep the display awake for at least two or three minutes after an interaction,
   or for as long as the puzzle is open in the foreground.
+- On screens up to 360 dp wide, the number keypad uses a 3×3 layout. After a
+  win, choose **View board** and then **Replay puzzle** to solve it again for
+  practice. Only the first completion is recorded in your stats.
 
 ### Basic solving methods
 
@@ -107,6 +113,8 @@ npm run apk
 The debug APK is at `android/app/build/outputs/apk/debug/app-debug.apk`.
 `npm run aab` builds the release app bundle. Both scripts call Gradle directly.
 Node package installation is only needed for the old web tests and icon tools.
+`npm test` runs JVM unit tests. To run the Android UI tests, start an emulator
+or connect a test device and run `cd android && ./gradlew connectedDebugAndroidTest`.
 
 **Send feedback** opens a draft directly in the player's email app, addressed
 to `kalamcsdeveloper@gmail.com`. Players write and send the email there. To use

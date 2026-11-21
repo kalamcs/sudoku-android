@@ -94,14 +94,15 @@ internal class BoardView(
     private var scaleFocusX = 0f
     private var scaleFocusY = 0f
     var onZoomChanged: ((Boolean) -> Unit)? = null
-    private val size get() = width.toFloat()
+    private val size get() = minOf(width, height).toFloat()
 
     private val accessibility = if (onCell != null) object : ExploreByTouchHelper(this) {
         override fun getVirtualViewAt(x: Float, y: Float) = if (hidden) INVALID_ID else viewport.cellAt(x, y, size) ?: INVALID_ID
 
         override fun getVisibleVirtualViews(ids: MutableList<Int>) {
             if (hidden || game == null) return
-            for (cell in 0..80) if (cellBounds(cell).intersects(0, 0, width, height)) ids.add(cell)
+            val side = size.toInt()
+            for (cell in 0..80) if (cellBounds(cell).intersects(0, 0, side, side)) ids.add(cell)
         }
 
         override fun onPopulateNodeForVirtualView(id: Int, node: AccessibilityNodeInfoCompat) {
@@ -125,7 +126,10 @@ internal class BoardView(
             node.className = "android.widget.Button"
             node.isSelected = board?.selected == id
             node.isClickable = true
-            node.setBoundsInParent(cellBounds(id))
+            val bounds = cellBounds(id)
+            val side = size.toInt()
+            bounds.intersect(0, 0, side, side)
+            setBoundsInScreenFromBoundsInParent(node, bounds)
             node.addAction(AccessibilityNodeInfoCompat.ACTION_CLICK)
         }
 
@@ -167,12 +171,16 @@ internal class BoardView(
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val size = MeasureSpec.getSize(widthMeasureSpec)
-        setMeasuredDimension(size, resolveSize(size, heightMeasureSpec))
+        val preferredSide = if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED) {
+            maxOf(suggestedMinimumWidth, suggestedMinimumHeight, MeasureSpec.getSize(heightMeasureSpec))
+        } else MeasureSpec.getSize(widthMeasureSpec)
+        val measuredHeight = resolveSize(preferredSide, heightMeasureSpec)
+        setMeasuredDimension(resolveSize(measuredHeight, widthMeasureSpec), measuredHeight)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        if (oldw != 0 && w != oldw) resetZoom()
+        val oldSide = minOf(oldw, oldh)
+        if (oldSide != 0 && minOf(w, h) != oldSide) resetZoom()
     }
 
     override fun dispatchHoverEvent(event: MotionEvent): Boolean =

@@ -10,6 +10,7 @@ internal class Game(
     var paused: Boolean = false,
     var selected: Int = values.indexOfFirst { it == 0 }.coerceAtLeast(0),
     prunedNotes: PrunedNotes? = null,
+    recordedWin: Boolean = false,
 ) {
     private data class Snapshot(val values: IntArray, val notes: IntArray, val prunedNotes: PrunedNotes?)
 
@@ -25,6 +26,8 @@ internal class Game(
     val matchingDigit get() = if (highlightedDigit != 0) highlightedDigit else values[selected]
     var finished = false
         private set
+    var recordedWin = recordedWin
+        private set
     var markedErrors = emptySet<Int>()
         private set
     private var startedAt: Long? = null
@@ -35,6 +38,7 @@ internal class Game(
     val canUndo get() = undo.isNotEmpty() && !paused && !finished
     val canRedo get() = redo.isNotEmpty() && !paused && !finished
     val hasBlank get() = 0 in values
+    val hasProgress get() = !finished && (!values.contentEquals(puzzle.givens) || notes.any { it != 0 })
 
     init { updateCounts() }
 
@@ -154,11 +158,15 @@ internal class Game(
         startedAt = null
     }
 
-    fun finish(now: Long) {
+    fun finish(now: Long): Boolean {
+        val firstWin = !recordedWin
         stop(now)
         finished = true
+        recordedWin = true
+        notesMode = false
         markedErrors = emptySet()
         highlightedDigit = 0
+        return firstWin
     }
 
     fun reset(now: Long) {

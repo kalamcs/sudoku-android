@@ -143,6 +143,32 @@ class GameTest {
         assertEquals(3_960L, game.elapsed(51_615))
     }
 
+    @Test fun completingAReplayDoesNotRecordAnotherWinEvenAfterRestoringIt() {
+        val game = game()
+        assertTrue(game.finish(0))
+        game.reset(1_000)
+        assertFalse(game.finished)
+
+        val restored = checkNotNull(SaveFormat.game(SaveFormat.encode(game, 2_000)))
+        assertFalse(restored.finish(3_000))
+        assertTrue(restored.finished)
+    }
+
+    @Test fun replacingThePuzzleOnlyProtectsEntriesAndNotes() {
+        val game = game()
+        game.start(1_000)
+        game.stop(2_000)
+        game.select(2)
+        assertFalse(game.hasProgress)
+        assertTrue(game.enter(4))
+        assertTrue(game.hasProgress)
+        assertTrue(game.erase())
+        assertFalse(game.hasProgress)
+        game.notesMode = true
+        assertTrue(game.enter(4))
+        assertTrue(game.hasProgress)
+    }
+
     @Test fun oldSaveRestoresEntriesNotesAndTimeAndCanRoundTripNatively() {
         val game = game()
         val legacy = JSONObject()

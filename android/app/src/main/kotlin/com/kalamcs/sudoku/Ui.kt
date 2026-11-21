@@ -20,20 +20,10 @@ import androidx.appcompat.widget.AppCompatButton
 import androidx.appcompat.widget.AppCompatImageButton
 import androidx.appcompat.widget.AppCompatRadioButton
 import androidx.core.view.ViewCompat
-import java.lang.ref.WeakReference
 import kotlin.math.roundToInt
 
 internal class Ui(private val context: Context) {
-    private var activeDialog: WeakReference<AlertDialog>? = null
     var palette = GameTheme.FLUENT.palette(dark = false)
-        set(value) {
-            if (field == value) return
-            val previous = field
-            field = value
-            val dialog = activeDialog?.get()?.takeIf { it.isShowing } ?: return
-            dialog.window?.decorView?.let { retintDialogContent(it, previous) }
-            applyDialogChrome(dialog)
-        }
 
     fun dp(value: Int) = (value * context.resources.displayMetrics.density).roundToInt()
 
@@ -149,19 +139,6 @@ internal class Ui(private val context: Context) {
     }
 
     fun tintDialog(dialog: AlertDialog) {
-        activeDialog = WeakReference(dialog)
-        applyDialogChrome(dialog)
-    }
-
-    private fun retintDialogContent(view: View, previous: GamePalette) {
-        when (view) {
-            is AppCompatButton -> if (view.id == View.NO_ID) styleButton(view)
-            is TextView -> view.setTextColor(if (view.currentTextColor == previous.muted) palette.muted else palette.ink)
-            is ViewGroup -> for (index in 0 until view.childCount) retintDialogContent(view.getChildAt(index), previous)
-        }
-    }
-
-    private fun applyDialogChrome(dialog: AlertDialog) {
         dialog.window?.setBackgroundDrawable(InsetDrawable(shape(palette.surface, palette.cardRadius), dp(8)))
         dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)?.setTextColor(palette.ink)
         dialog.findViewById<TextView>(android.R.id.message)?.setTextColor(palette.ink)

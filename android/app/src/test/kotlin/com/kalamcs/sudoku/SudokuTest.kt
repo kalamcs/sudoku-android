@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.random.Random
@@ -14,7 +15,7 @@ class SudokuTest {
 
     @Test fun generatedPuzzlesAreUniqueAndMatchDifficulty() {
         val random = Random(0x1a2b3c4d)
-        for (difficulty in Difficulty.entries) repeat(8) {
+        for (difficulty in Difficulty.entries) repeat(if (difficulty in listOf(Difficulty.EASY, Difficulty.MEDIUM)) 24 else 8) {
             val puzzle = Sudoku.generate(difficulty, random)
             assertEquals(difficulty, puzzle.difficulty)
             assertTrue(puzzle.givens.count { it != 0 } in difficulty.clues)
@@ -34,6 +35,9 @@ class SudokuTest {
         assertNull(Sudoku.hint(board))
         assertEquals(0, Sudoku.countSolutions(board))
         assertEquals(2, Sudoku.countSolutions(IntArray(81), 2))
+        assertNull(Sudoku.uniqueSolution(IntArray(81)))
+        val puzzle = board(Guide.PROOF_BOARD)
+        assertArrayEquals(Sudoku.solve(puzzle), Sudoku.uniqueSolution(puzzle))
     }
 
     @Test fun everyHintAdvancesAValidPuzzleAndUsesACoveredTechnique() {
@@ -70,7 +74,7 @@ class SudokuTest {
             "Only 5 remains for this cell.",
         ), hint.steps.map(HintStep::text))
         assertEquals(List(3) { Technique.HIDDEN_SINGLE }, hint.steps.mapNotNull(HintStep::technique))
-        val evidence = checkNotNull(hint.steps[5].details).invoke().joinToString { it.text }
+        val evidence = checkNotNull(hint.steps[5].details).invoke(HintBudget()).joinToString { it.text }
         assertTrue("Column 1 already contains 7" in evidence)
         assertTrue("Column 9 already contains 7" in evidence)
         assertEquals(Guide.PROOF_BOARD, board.joinToString(""))
@@ -85,16 +89,24 @@ class SudokuTest {
         fun checkBranches(steps: List<HintStep>) {
             val choices = steps.filter { it.text.startsWith("What if") }
             if (choices.isNotEmpty()) {
-                choices.forEach { checkBranches(checkNotNull(it.details).invoke()) }
+                choices.forEach { checkBranches(checkNotNull(it.details).invoke(HintBudget())) }
             } else {
                 val deadEnd = steps.first { it.text.startsWith("There is nowhere") || it.text.startsWith("No digit") }
-                assertTrue(checkNotNull(deadEnd.details).invoke().isNotEmpty())
+                assertTrue(checkNotNull(deadEnd.details).invoke(HintBudget()).isNotEmpty())
                 deadEnds++
             }
         }
         checkBranches(hint.steps)
+        val branch = hint.steps.first { it.text.startsWith("What if") }
+        assertThrows(HintTimedOut::class.java) { checkNotNull(branch.details).invoke(HintBudget(0)) }
         assertTrue(deadEnds >= 2)
         assertEquals(0, board[hint.cell])
+    }
+
+    @Test fun anExpiredHintBudgetStopsBeforeGivingAnAnswer() {
+        val puzzle = board(Guide.PROOF_BOARD)
+        assertThrows(HintTimedOut::class.java) { Sudoku.hint(puzzle, HintBudget(0)) }
+        assertEquals(Guide.PROOF_BOARD, puzzle.joinToString(""))
     }
 
     @Test fun guideExamplesUseValidCandidatesAndHintTerminology() {

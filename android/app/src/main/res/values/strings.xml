@@ -2,6 +2,4 @@
 <resources>
     <string name="app_name">Sudoku</string>
     <string name="title_activity_main">Sudoku</string>
-    <string name="package_name">com.kalamcs.sudoku</string>
-    <string name="custom_url_scheme">com.kalamcs.sudoku</string>
 </resources>

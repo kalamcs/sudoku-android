@@ -39,7 +39,9 @@ import androidx.core.view.WindowInsetsCompat
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CancellationException
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 
 class SudokuActivity : AppCompatActivity() {
     private enum class Screen { HOME, GAME, GUIDE, LESSON, SETTINGS }
@@ -47,7 +49,8 @@ class SudokuActivity : AppCompatActivity() {
     private val ui by lazy { Ui(this) }
     private val store by lazy { GameStore(this) }
     private val guide by lazy { GuideScreen(this, ui) }
-    private val worker = Executors.newSingleThreadExecutor()
+    private val puzzleWorker = Executors.newSingleThreadExecutor()
+    private val hintWorker = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
     private var screen = Screen.HOME
     private lateinit var appearanceStore: AppearanceStore
@@ -60,12 +63,15 @@ class SudokuActivity : AppCompatActivity() {
     private var lesson: Technique? = null
     private var board: BoardView? = null
     private var controls: GameControls? = null
-    private var gameDialog: AlertDialog? = null
+    private var pageDialog: AlertDialog? = null
+    private var dialogPausesClock = false
     private var generationInProgress = false
     private var restoring = true
     private var foreground = false
     private var hintRequest = 0
     private var hintPending = false
+    private var hintTask: Future<*>? = null
+    private val detailTasks = mutableSetOf<Future<*>>()
     private var displayedSecond = -1L
     private var lastSaveTime = 0L
     private val releaseScreen = Runnable { window.clearFlags(FLAG_KEEP_SCREEN_ON) }
@@ -85,7 +91,7 @@ class SudokuActivity : AppCompatActivity() {
     private val tick = object : Runnable {
         override fun run() {
             val active = game
-            if (foreground && screen == Screen.GAME && active != null && !active.paused && !active.finished) {
+            if (foreground && screen == Screen.GAME && !dialogPausesClock && active != null && !active.paused && !active.finished) {
                 updateClock(active)
                 if (now() - lastSaveTime >= 5_000L) saveGame()
             }
@@ -186,15 +192,19 @@ class SudokuActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacks(releaseScreen)
-        worker.shutdownNow()
+        cancelHint()
+        dismissPageDialog()
+        puzzleWorker.shutdownNow()
+        hintWorker.shutdownNow()
         super.onDestroy()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        cancelHint()
         when (screen) {
             Screen.HOME -> renderHome()
-            Screen.GAME -> renderGame()
+            Screen.GAME -> showGame()
             Screen.GUIDE -> renderGuide()
             Screen.LESSON -> lesson?.let(::renderLesson)
             Screen.SETTINGS -> renderSettings()
@@ -210,6 +220,7 @@ class SudokuActivity : AppCompatActivity() {
     }
 
     private fun page(): LinearLayout {
+        dismissPageDialog()
         updateScreenTimeout()
         val systemDark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
         val palette = appearance.palette(systemDark)
@@ -268,8 +279,6 @@ class SudokuActivity : AppCompatActivity() {
         cancelHint()
         game?.stop(now())
         saveGame()
-        gameDialog?.dismiss()
-        gameDialog = null
         renderHome()
     }
 
@@ -388,13 +397,13 @@ class SudokuActivity : AppCompatActivity() {
 
     private fun askForNew(difficulty: Difficulty) {
         if (generationInProgress) return
-        if (game?.finished == false) {
+        if (game?.hasProgress == true) {
             AlertDialog.Builder(this)
                 .setTitle("Start a new ${difficulty.label.lowercase()} game?")
                 .setMessage("This will replace your saved puzzle.")
                 .setPositiveButton("Start") { _, _ -> newGame(difficulty) }
                 .setNegativeButton("Cancel", null)
-                .showThemed()
+                .showThemed(pauseClock = screen == Screen.GAME)
         } else newGame(difficulty)
     }
 
@@ -402,7 +411,7 @@ class SudokuActivity : AppCompatActivity() {
         showHome()
         generationInProgress = true
         renderHome()
-        worker.execute {
+        puzzleWorker.execute {
             val result = runCatching { Sudoku.generate(difficulty) }
             runOnUiThread {
                 if (isDestroyed || isFinishing) return@runOnUiThread
@@ -480,15 +489,18 @@ class SudokuActivity : AppCompatActivity() {
         ui.equal(second, pause, 5)
         ui.add(card, second, 5)
 
-        val keypad = ui.row()
         val digits = (1..9).map { digit ->
             ui.button(digit.toString()) { edit { it.enter(digit) } }.apply {
                 textSize = 17f
                 setPadding(0, ui.dp(3), 0, ui.dp(3))
-                ui.equal(keypad, this, if (digit == 1) 0 else 3)
             }
         }
-        ui.add(card, keypad, 8)
+        val keypadColumns = if (resources.configuration.screenWidthDp <= 360) 3 else 9
+        digits.chunked(keypadColumns).forEachIndexed { index, keys ->
+            val row = ui.row()
+            keys.forEachIndexed { column, key -> ui.equal(row, key, if (column == 0) 0 else 3) }
+            ui.add(card, row, if (index == 0) 8 else 4)
+        }
 
         val actions = ui.row()
         val gesture = ui.text("Pinch to zoom", 13, ui.palette.muted)
@@ -565,12 +577,18 @@ class SudokuActivity : AppCompatActivity() {
             showMistakes(mistakes)
             return
         }
-        active.finish(now())
+        val firstWin = active.finish(now())
         updateScreenTimeout()
-        val record = records.getValue(active.puzzle.difficulty)
-        val best = record.win(active.elapsed(now()) / 1000, System.currentTimeMillis())
-        store.recordWin(active, now(), records)
-        gameDialog = AlertDialog.Builder(this)
+        val best = if (firstWin) {
+            val record = records.getValue(active.puzzle.difficulty)
+            record.win(active.elapsed(now()) / 1000, System.currentTimeMillis()).also {
+                store.recordWin(active, now(), records)
+            }
+        } else {
+            saveGame()
+            false
+        }
+        AlertDialog.Builder(this)
             .setTitle(if (best) "New personal best" else "Puzzle solved")
             .setMessage("${active.puzzle.difficulty.label} · ${formatTime(active.elapsed(now()) / 1000)}")
             .setPositiveButton("Home") { _, _ -> showHome() }
@@ -580,47 +598,57 @@ class SudokuActivity : AppCompatActivity() {
 
     private fun resumeScreen() {
         val active = game ?: return
-        active.start(now())
+        if (!dialogPausesClock) active.start(now())
         updateGame()
         updateScreenTimeout()
     }
 
     private fun menu() {
         val active = game ?: return
+        cancelHint()
+        updateGame()
         val actions = linkedMapOf<String, () -> Unit>(
             "How to play" to { openGuide() },
             "Settings" to { openSettings() },
             "Home" to { showHome() },
             "New game" to { chooseDifficulty() },
-            "Reset board" to { resetBoard() },
+            "Check for errors" to {
+                val mistakes = active.mistakes().size
+                if (mistakes == 0) message("Check for errors", "There are no incorrect entries so far.")
+                else showMistakes(mistakes)
+            },
+            (if (active.finished) "Replay puzzle" else "Reset board") to { resetBoard() },
             "Send feedback" to { feedback() },
         )
-        gameDialog = AlertDialog.Builder(this)
+        AlertDialog.Builder(this)
             .setTitle("${active.puzzle.difficulty.label} game")
             .setItems(actions.keys.toTypedArray()) { _, which -> actions.values.elementAt(which).invoke() }
             .setNegativeButton("Close", null)
-            .showThemed()
+            .showThemed(pauseClock = true)
     }
 
     private fun chooseDifficulty() {
-        gameDialog = AlertDialog.Builder(this).setTitle("New game")
+        AlertDialog.Builder(this).setTitle("New game")
             .setItems(Difficulty.entries.map(Difficulty::label).toTypedArray()) { _, which -> askForNew(Difficulty.entries[which]) }
-            .setNegativeButton("Cancel", null).showThemed()
+            .setNegativeButton("Cancel", null).showThemed(pauseClock = true)
     }
 
     private fun resetBoard() {
-        gameDialog = AlertDialog.Builder(this)
-            .setTitle("Reset board?")
-            .setMessage("This clears your entries and notes and restarts the timer.")
-            .setPositiveButton("Reset") { _, _ ->
+        val active = game ?: return
+        val replay = active.finished
+        AlertDialog.Builder(this)
+            .setTitle(if (replay) "Replay this puzzle?" else "Reset board?")
+            .setMessage(if (replay) "Your original result stays in your stats." else "This clears your entries and notes and restarts the timer.")
+            .setPositiveButton(if (replay) "Replay" else "Reset") { _, _ ->
                 cancelHint()
-                game?.reset(now())
+                active.reset(now())
+                active.stop(now())
                 board?.resetZoom()
                 saveGame()
                 updateGame()
             }
             .setNegativeButton("Cancel", null)
-            .showThemed()
+            .showThemed(pauseClock = true)
     }
 
     private fun openSettings() {
@@ -712,6 +740,8 @@ class SudokuActivity : AppCompatActivity() {
     private fun cancelHint() {
         hintRequest++
         hintPending = false
+        hintTask?.cancel(true)
+        hintTask = null
     }
 
     private fun requestHint() {
@@ -726,22 +756,33 @@ class SudokuActivity : AppCompatActivity() {
         val request = ++hintRequest
         val values = active.values.copyOf()
         updateGame()
-        worker.execute {
-            val hint = Sudoku.hint(values)
+        hintTask = hintWorker.submit {
+            val result = try {
+                Result.success(Sudoku.hint(values))
+            } catch (_: CancellationException) {
+                return@submit
+            } catch (timeout: HintTimedOut) {
+                Result.failure(timeout)
+            }
             runOnUiThread {
                 if (isFinishing || isDestroyed || hintRequest != request) return@runOnUiThread
+                hintTask = null
                 hintPending = false
                 updateGame()
                 if (screen != Screen.GAME || game !== active || active.paused || !foreground) return@runOnUiThread
-                if (hint == null) message("Hint", "There is no forced placement to show for this board.")
-                else showHint(hint)
+                val hint = result.getOrNull()
+                when {
+                    result.isFailure -> message("Hint", "Finding an explanation took too long. You can try again.")
+                    hint != null -> showHint(hint)
+                    else -> message("Hint", "There is no forced placement to show for this board.")
+                }
             }
         }
     }
 
     private fun showMistakes(count: Int) {
         val noun = if (count == 1) "entry" else "entries"
-        gameDialog = AlertDialog.Builder(this)
+        AlertDialog.Builder(this)
             .setTitle("$count incorrect $noun")
             .setMessage("Highlight the incorrect numbers on the board?")
             .setPositiveButton("Highlight") { _, _ -> game?.markMistakes(); updateGame() }
@@ -756,16 +797,13 @@ class SudokuActivity : AppCompatActivity() {
         val techniques = (listOf(hint.technique) + hint.steps.mapNotNull { it.technique }).distinct()
         ui.add(panel, ui.heading("Technique guide", 16), 18)
         for (technique in techniques) {
-            ui.add(panel, ui.button(technique.title) {
-                gameDialog?.dismiss()
-                openGuide(technique)
-            }, 5)
+            ui.add(panel, ui.button(technique.title) { openGuide(technique) }, 5)
         }
         val scroll = ScrollView(this).apply {
             addView(panel)
             isFillViewport = false
         }
-        gameDialog = AlertDialog.Builder(this)
+        AlertDialog.Builder(this)
             .setTitle(hint.technique.title)
             .setView(scroll)
             .setPositiveButton("Show cell") { _, _ ->
@@ -796,16 +834,31 @@ class SudokuActivity : AppCompatActivity() {
                     children.visibility = View.VISIBLE
                     toggle.text = "Hide reasoning for step ${index + 1}"
                     if (!loaded) {
-                        loaded = true
+                        val owner = pageDialog ?: return@button
                         toggle.isEnabled = false
-                        worker.execute {
-                            val expanded = detail()
+                        lateinit var task: Future<*>
+                        task = hintWorker.submit {
+                            val expanded = try {
+                                detail(HintBudget())
+                            } catch (_: CancellationException) {
+                                return@submit
+                            } catch (_: HintTimedOut) {
+                                null
+                            }
                             runOnUiThread {
-                                if (isFinishing || isDestroyed) return@runOnUiThread
-                                addSteps(children, expanded)
+                                detailTasks.remove(task)
+                                if (pageDialog !== owner || !owner.isShowing) return@runOnUiThread
+                                children.removeAllViews()
+                                if (expanded == null) {
+                                    ui.add(children, ui.text("Finding the reasoning took too long. Close and reopen this step to retry."))
+                                } else {
+                                    loaded = true
+                                    addSteps(children, expanded)
+                                }
                                 toggle.isEnabled = true
                             }
                         }
+                        detailTasks.add(task)
                     }
                 }
             }
@@ -826,14 +879,43 @@ class SudokuActivity : AppCompatActivity() {
     }
 
     private fun message(title: String, content: String) {
-        val dialog = AlertDialog.Builder(this).setTitle(title).setMessage(content).setPositiveButton("Close", null).showThemed()
-        if (screen == Screen.GAME) gameDialog = dialog
+        AlertDialog.Builder(this).setTitle(title).setMessage(content).setPositiveButton("Close", null).showThemed()
     }
 
-    private fun AlertDialog.Builder.showThemed() = create().also { it.showThemed() }
+    private fun cancelDetailTasks() {
+        detailTasks.forEach { it.cancel(true) }
+        detailTasks.clear()
+    }
 
-    private fun AlertDialog.showThemed() {
-        show()
-        ui.tintDialog(this)
+    private fun dismissPageDialog() {
+        val dialog = pageDialog ?: return
+        pageDialog = null
+        dialogPausesClock = false
+        cancelDetailTasks()
+        dialog.dismiss()
+    }
+
+    private fun AlertDialog.Builder.showThemed(pauseClock: Boolean = false) {
+        val resumeClock = dialogPausesClock && !pauseClock
+        dismissPageDialog()
+        val dialog = create()
+        pageDialog = dialog
+        dialogPausesClock = pauseClock
+        if (pauseClock) game?.takeUnless { it.finished }?.let { active ->
+            active.stop(now())
+            updateClock(active)
+            saveGame()
+        }
+        if (resumeClock && foreground && screen == Screen.GAME) resumeScreen()
+        dialog.setOnDismissListener {
+            if (pageDialog !== dialog) return@setOnDismissListener
+            val resumeClock = dialogPausesClock
+            pageDialog = null
+            dialogPausesClock = false
+            cancelDetailTasks()
+            if (resumeClock && foreground && screen == Screen.GAME) resumeScreen()
+        }
+        dialog.show()
+        ui.tintDialog(dialog)
     }
 }

@@ -23,6 +23,7 @@ import androidx.test.espresso.action.Press
 import androidx.test.espresso.action.Tap
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
+import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.espresso.matcher.ViewMatchers.isChecked
@@ -44,6 +45,105 @@ import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class NativeGameTest {
+    @Test fun checkingErrorsKeepsTimeAndOnlyHighlightsWithPermission() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
+            onView(withText("Continue")).perform(click())
+            onView(withText("3")).perform(scrollTo(), click())
+            onView(withContentDescription("Game menu")).perform(scrollTo(), click())
+            val paused = displayedTime(scenario)
+            SystemClock.sleep(1_500)
+            assertEquals(paused, displayedTime(scenario))
+
+            onView(withText("Check for errors")).perform(click())
+            onView(withText("1 incorrect entry")).check(matches(isDisplayed()))
+            val checking = displayedTime(scenario)
+            SystemClock.sleep(1_500)
+            assertTrue(displayedTime(scenario) != checking)
+            onView(withText("Close")).perform(click())
+            assertCellDescription(1, "Row 1, column 2, 3")
+
+            onView(withContentDescription("Game menu")).perform(scrollTo(), click())
+            onView(withText("Check for errors")).perform(click())
+            onView(withText("Highlight")).perform(click())
+            assertCellDescription(1, "Row 1, column 2, 3, incorrect")
+
+            onView(withText("Erase")).perform(scrollTo(), click())
+            onView(withContentDescription("Game menu")).perform(scrollTo(), click())
+            onView(withText("Check for errors")).perform(click())
+            onView(withText("There are no incorrect entries so far.")).check(matches(isDisplayed()))
+            onView(withText("Highlight")).check(doesNotExist())
+        }
+    }
+
+    @Test fun replayCanBeCompletedWithoutChangingTheWinRecord() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val store = GameStore(context)
+        val solution = checkNotNull(Sudoku.solve(checkNotNull(Sudoku.decode(Guide.PROOF_BOARD))))
+        val givens = solution.copyOf().apply { this[0] = 0 }
+        val before = store.records().getValue(Difficulty.EASY).wins
+        store.save(Game(Puzzle(Difficulty.EASY, givens, solution)), SystemClock.elapsedRealtime())
+
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Continue")).perform(click())
+            onView(withText(solution[0].toString())).perform(scrollTo(), click())
+            onView(withText("View board")).perform(click())
+            val recorded = store.records().getValue(Difficulty.EASY)
+            assertEquals(before + 1, recorded.wins)
+
+            onView(withContentDescription("Game menu")).perform(scrollTo(), click())
+            onView(withText("Replay puzzle")).perform(click())
+            onView(withText("Replay")).perform(click())
+            onView(withText(solution[0].toString())).perform(scrollTo(), click())
+            onView(withText("Puzzle solved")).check(matches(isDisplayed()))
+            assertEquals(recorded, store.records().getValue(Difficulty.EASY))
+        }
+    }
+
+    @Test fun rerenderingHomeDismissesItsDiscardConfirmation() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
+            onView(withText("Discard")).perform(click())
+            onView(withText("Discard your saved game?")).check(matches(isDisplayed()))
+            scenario.onActivity { it.onConfigurationChanged(Configuration(it.resources.configuration)) }
+            onView(withText("Discard your saved game?")).check(doesNotExist())
+            onView(withText("Continue your game")).check(matches(isDisplayed()))
+        }
+    }
+
+    @Test fun boardFitsAHeightConstrainedParent() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = BoardView(activity, GameTheme.FLUENT.palette(dark = false))
+                val width = View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.AT_MOST)
+                val height = View.MeasureSpec.makeMeasureSpec(180, View.MeasureSpec.AT_MOST)
+                view.measure(width, height)
+                assertEquals(180, view.measuredWidth)
+                assertEquals(180, view.measuredHeight)
+            }
+        }
+    }
+
+    private fun displayedTime(scenario: ActivityScenario<SudokuActivity>): String {
+        var time = ""
+        scenario.onActivity { activity ->
+            time = TreeIterables.depthFirstViewTraversal(activity.findViewById(R.id.page_content))
+                .filterIsInstance<TextView>()
+                .map { it.text.toString() }
+                .single { Regex("[0-9]+:[0-9]{2}").matches(it) }
+        }
+        return time
+    }
+
+    private fun assertCellDescription(cell: Int, description: String) {
+        onView(isAssignableFrom(BoardView::class.java)).check { view, error ->
+            if (error != null) throw error
+            val provider = checkNotNull(view.accessibilityNodeProvider)
+            assertEquals(description, provider.createAccessibilityNodeInfo(cell)?.contentDescription?.toString())
+        }
+    }
+
     @Test fun backReturnsHomeAndTheNotesControlShowsBothStates() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
