@@ -1,186 +1,157 @@
 # Sudoku for Android
 
-A complete, fully offline Sudoku game for Android, packaged with
-[Capacitor 8](https://capacitorjs.com). Puzzles are generated on the device —
-there is no backend, no account, and no network or analytics permission.
+An offline Sudoku game built with Kotlin and native Android Views. Puzzles are
+generated on the device. No account or network permission is required.
 
-- **Package:** `com.kalamcs.sudoku`
-- **Minimum Android:** 7.0 (API 24)
-- **Target Android:** 16 (API 36)
+- Package `com.kalamcs.sudoku`
+- Minimum Android 7.0 (API 24)
+- Target Android 16 (API 36)
 
-## Features
+## How to play
 
-**Puzzles**
-- Easy (40–45 clues), Medium (32–37), Hard (26–30)
-- Every puzzle is generated on-device with a guaranteed **unique** solution
-- Difficulty is shown in the header and the slide-in menu
+Fill the board so that each row, column, and 3×3 box contains the digits 1
+through 9 exactly once. The starting clues stay fixed.
 
-**Solving**
-- Notes / pencil marks with a 3×3 mini-grid inside each cell
-- *Auto notes* fills every empty cell with its row/column/box candidates in one
-  undoable action
-- Undo/redo all the way back to the starting puzzle
-- Duplicate digits are flagged **red** as soon as they break a row, column or box
-  rule
-- Tap a given (bold) cell, then press a digit to highlight every occurrence of
-  that digit; keep pressing digits to switch, tap any cell to leave the mode
-- The selected cell and matching digits use a high-contrast highlight
-- Completed digits grey out on the numpad; the currently highlighted digit stays
-  active
-- *Reset board* clears every entry and note and restarts the timer
+- Tap a cell and a digit to enter a number. Tap a filled cell to highlight
+  matching entries and pencil marks. With a starting clue selected, tap a
+  keypad digit to highlight its matches. Completed digits stay gray on the
+  keypad. Duplicate entries appear in red.
+- Pinch the board to zoom up to 3×. Drag with one finger to move around the
+  enlarged board, then pinch inward or tap **Reset zoom** to see the full board.
+- Toggle **Notes: Off** or **Notes: On** to pencil in candidates. **Auto notes**
+  lists the digits allowed by the current row, column, and box. If you correct
+  or erase your latest entry before another board edit, the pencil marks it
+  removed are restored. Undo and redo track entries and notes during the session.
+- **Hint** counts incorrect entries first and offers to highlight them. On a
+  correct board, it explains a forced placement and can select the cell. Open
+  the reasoning under a step to see the supporting constraints.
+- **Pause** and Android Back save the puzzle and return to Home. Tap
+  **Continue** to pick up where you left off. After waking the phone or
+  returning to the app, an open puzzle resumes automatically.
+  The home stats table shows solved puzzles, best times and dates, and average
+  times by difficulty. The timer also stops when you leave the app or open the
+  guide from a game.
+- **Screen timeout during a game** follows Android by default. Settings can
+  keep the display awake for at least two or three minutes after an interaction,
+  or for as long as the puzzle is open in the foreground.
 
-**Menus and feedback**
-- Hamburger menu in the corner: pause/resume, reset board, new game, feedback
-- *Send feedback* opens a prefilled bug report or feature request on GitHub in
-  the system browser
+### Basic solving methods
 
-**Progress and stats**
-- Autosave: the game is saved continuously and offered on the home screen after
-  the app is closed or killed
-- Per-difficulty best time, average time, puzzles solved, and best-time date
-- Home screen with stats plus a "Continue your game" card
-- Timer pauses manually, and automatically when the app goes to the background,
-  so time away is never counted
+Start with a nearly full row, column, or box and list its missing digits.
+Check which digits fit each blank. A **naked single** is a cell with only one
+candidate. A **hidden single** is the only place a particular digit can go in
+a row, column, or box. Recheck the affected areas after each placement.
 
-**Android behaviour**
-- Edge-to-edge layout that respects status/navigation bars and display cutouts
-- Sudoku-themed adaptive launcher icon
-- Back button closes an open menu or dialog first, then pauses the game and
-  returns home; it exits only from the home screen
-- No pull-to-refresh, text selection, or tap highlights — it feels like an app,
-  not a web page
+### Advanced solving techniques
 
-## Requirements
+**Locked candidates** use the overlap between a line and a box to eliminate
+options. A **naked pair** reserves two digits for two cells in the same row,
+column, or box. A **proof by contradiction** rules out a candidate by showing
+that its forced consequences break a Sudoku rule.
 
-No Android Studio required; the command-line SDK is enough.
+Open **How to play** from home or the game menu for board diagrams and worked
+examples of these techniques.
 
-| Dependency | Version |
-|---|---|
-| Node.js | 22+ |
-| JDK | 17–21 (built with Temurin 21) |
-| Android SDK Platform | `platforms;android-36` |
-| Android SDK Build-Tools | `build-tools;36.0.0` |
-| Android SDK Platform-Tools | `platform-tools` (for `adb`) |
-| Gradle | supplied by the wrapper (8.14.3) |
+## Puzzle difficulty
 
-`JAVA_HOME` and `ANDROID_HOME` must be set. Install the SDK packages with:
+A clue is a number that is already on the board when the puzzle starts. Every
+puzzle has exactly one solution.
 
-```bash
-sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-yes | sdkmanager --licenses
-```
+| Level | Target clues | How the app chooses puzzles |
+|---|---:|---|
+| Easy | 40–45 | Removes clues from a completed grid while keeping a unique solution. |
+| Medium | 32–37 | Uses the same generation method with fewer starting clues. |
+| Hard | 26–30 | Checks that the puzzle can be solved with naked singles, hidden singles, locked candidates, and naked pairs. |
+| Extreme | 23–25 | Varies prechecked boards that require reasoning beyond the Hard technique set. |
 
-On this machine: `JAVA_HOME=~/.local/opt/jdk-21-current` and
-`ANDROID_HOME=~/Android/Sdk` (both exported from `~/.bashrc`).
+Clue placement also affects difficulty. Two puzzles with the same clue count
+can call for different techniques. The Hard check sets an upper limit on the
+techniques needed, so some Hard puzzles can be solved with singles alone.
 
-## Build
+Further reading on puzzle difficulty:
 
-```bash
-npm install          # once
-npm run apk          # debug APK
-```
+- [HoDoKu's rating and difficulty levels](https://hodoku.dev/docs_cre) explains
+  a technique-based rating that combines the hardest step with the total score.
+- Radek Pelánek's [Difficulty Rating of Sudoku Puzzles](https://arxiv.org/abs/1403.7373)
+  compares difficulty metrics with how people solve puzzles.
 
-Output: `android/app/build/outputs/apk/debug/app-debug.apk`
+## Appearance
 
-Other scripts:
+Open **Settings** from the home screen or the game menu. The app starts in
+**Light** mode with **Fluent 2** styling. Choose **Dark** to use dark colors or
+**System** to follow Android's light or dark setting. Appearance and theme
+choices are saved independently.
 
-| Command | Result |
-|---|---|
-| `npm run sync` | Rebuild `www/native.js` and copy `www/` into the native project |
-| `npm run apk` | Sync + `./gradlew assembleDebug` |
-| `npm run aab` | Sync + `./gradlew bundleRelease` (Play Store bundle) |
-| `npm run icons` | Re-render launcher icons from `assets/*.svg` (writes `android/.../res/mipmap-*`) |
-| `npm run open` | Open `android/` in Android Studio, if installed |
+The theme choices are [Fluent 2](https://fluent2.microsoft.design/color),
+[Nord](https://www.nordtheme.com/docs/colors-and-palettes/),
+[Catppuccin](https://catppuccin.com/palette/) with Latte in light mode and Mocha
+in dark mode, and [Google Material](https://m3.material.io/styles/color/the-color-system/).
+Each theme also colors the puzzle, notes, and worked examples.
 
-Run `npm run sync` after changing anything in `www/` or `capacitor.config.json`.
-The first build downloads Gradle and the AndroidX dependencies (a few hundred
-MB, cached in `~/.gradle`); later builds take seconds.
+## Build and test
 
-## Install on the phone
+Use JDK 17–21 and Android SDK Platform 36. The Gradle 8.14.3 wrapper downloads
+the Kotlin and AndroidX dependencies. Android SDK Build-Tools 36.0.0 and
+Platform-Tools supply the APK verification and ADB commands.
 
-With wireless debugging (Android 11+, no USB needed):
+On the project's WSL2 setup:
 
 ```bash
-adb pair <phone-ip>:<pair-port>     # code from Developer options → Wireless debugging
-adb connect <phone-ip>:5555
-adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+export JAVA_HOME="$HOME/.local/opt/jdk-21-current"
+export ANDROID_HOME="$HOME/Android/Sdk"
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
+npm test
+npm run apk
 ```
 
-Or copy the APK to the phone and open it, allowing "install unknown apps" for
-the file manager. On WSL2 the phone's USB device is not exposed to Linux by
-default; wireless debugging, or running `adb` from Windows against a copy of the
-APK, avoids that.
+The debug APK is at `android/app/build/outputs/apk/debug/app-debug.apk`.
+`npm run aab` builds the release app bundle. Both scripts call Gradle directly.
+Node package installation is only needed for the old web tests and icon tools.
 
-## Release to Google Play
+**Send feedback** opens a draft directly in the player's email app, addressed
+to `kalamcsdeveloper@gmail.com`. Players write and send the email there. To use
+a different recipient in a custom build, set
+`SUDOKU_FEEDBACK_EMAIL=feedback@example.com npm run apk`.
 
-1. Create an upload keystore **outside this repository**:
+## Install on a phone
 
-   ```bash
-   keytool -genkey -v -keystore ~/keys/sudoku-upload.jks \
-     -alias sudoku -keyalg RSA -keysize 2048 -validity 10000
-   ```
+For wireless debugging, use the pairing port from the phone's **Pair device
+with pairing code** dialog and the connection port from its **Wireless
+debugging** screen.
 
-2. Create `android/keystore.properties` (git-ignored) with the store/key
-   passwords and path, and reference it from a `signingConfigs` block in
-   `android/app/build.gradle`.
-3. Bump `versionCode`/`versionName` in `android/app/build.gradle`.
-4. `npm run aab` → `android/app/build/outputs/bundle/release/app-release.aab`
-5. Upload the bundle in Play Console.
+```bash
+adb pair <phone-ip>:<pair-port>
+adb connect <phone-ip>:<connection-port>
+adb devices -l
+adb -s <device-serial> install -r android/app/build/outputs/apk/debug/app-debug.apk
+```
 
-Back up the keystore and its passwords: without them the app can never be
-updated under the same listing. Never commit `*.keystore`/`*.jks`,
-`keystore.properties`, or `android/local.properties` — all are in `.gitignore`.
+You can also copy the APK to your phone and open it from the file manager. To
+carry over progress from the prior web-based app, install as an update using
+the same signing key. On first launch, the app imports its saved puzzle and
+stats from the old local storage into Android SharedPreferences.
 
-> The `appId` in `capacitor.config.json` (`com.kalamcs.sudoku`) is the permanent
-> Play Store identity. Changing it means updating `android/app/build.gradle`
-> (`namespace`, `applicationId`),
-> `android/app/src/main/res/values/strings.xml` (`package_name`,
-> `custom_url_scheme`), and the `MainActivity` package — and is not possible
-> after the first upload.
-
-## Project layout
+## Source layout
 
 | Path | Purpose |
 |---|---|
-| `www/` | The game: markup, styles, controller, puzzle generator |
-| `src/native.js` | Native glue: back button, background auto-pause, opening the browser for feedback. Bundled to `www/native.js` by esbuild |
-| `assets/` | Launcher-icon source SVGs and the 1024px render |
-| `scripts/generate-icons.mjs` | Renders the source SVGs into every Android density bucket |
-| `android/` | Native Android project generated by Capacitor. `npx cap sync` owns `app/src/main/assets/public` |
-| `capacitor.config.json` | App id and name, web directory, system-bar and splash settings |
-| `package.json` | Build scripts and Capacitor/esbuild dependencies |
+| `android/app/src/main/kotlin/com/kalamcs/sudoku/` | Native activity, board, illustrated guide, puzzle engine, game state, and storage |
+| `android/app/src/test/kotlin/com/kalamcs/sudoku/` | Puzzle, hint, saved-data, and board viewport tests |
+| `www/`, `src/native.js`, `test/` | Prior web implementation and its tests, available via `npm run test:web` |
+| `assets/` and `scripts/generate-icons.mjs` | Launcher icon source and regeneration via `npm run icons` |
 
-## Implementation notes
+The Android UI uses native widgets throughout and draws the game and guide
+boards with Canvas. The build does not package the web app. An offscreen
+WebView is used only to import local storage from a previous installation.
 
-- **Storage** uses `localStorage` (`sudoku_save_v1`, `sudoku_stats_v1`). The
-  autosave payload is ~0.5 KB, far below the 5 MB quota, and survives process
-  death and app updates.
-- **Edge-to-edge** is mandatory on Android 15+ for apps targeting API 35+, so
-  the page is drawn under the system bars. Capacitor's built-in `SystemBars`
-  plugin injects `--safe-area-inset-*` on the document root (configured with
-  `insetsHandling: "css"`), and `styles.css` pads the page and overlays with
-  them. `@capacitor/status-bar` is deliberately not used: its `overlaysWebView`
-  and `backgroundColor` options have no effect on API 36.
-- **Background pause** is driven by the native `appStateChange` event, not the
-  WebView's `visibilitychange`, which Android does not fire reliably when the
-  app leaves the foreground.
-- **The back button** is handled in `src/native.js`: close the feedback form or
-  menu, then pause, then go home, then exit.
-- **Feedback** does not use a backend. The form builds a prefilled
-  `https://github.com/kalamcs/sudoku-android/issues/new` URL (title, body, and
-  `bug`/`enhancement` label) and `@capacitor/browser` opens it in the system
-  browser. This only works while the GitHub repository is public and has Issues
-  enabled; if it is private, players cannot submit reports.
-- **Launcher icon** is generated by `npm run icons` from `assets/icon-full.svg`
-  (legacy icon) and `assets/icon-foreground.svg` (adaptive foreground). The
-  adaptive background colour lives in
-  `android/app/src/main/res/values/ic_launcher_background.xml`.
+## Release to Google Play
 
-## Troubleshooting
+1. Keep the upload keystore outside the repository. Configure release signing
+   in `android/app/build.gradle` with credentials from an ignored local file.
+2. Keep the existing application ID `com.kalamcs.sudoku` and increment the
+   version code for each release.
+3. Run `npm run aab` and upload
+   `android/app/build/outputs/bundle/release/app-release.aab` to Play Console.
 
-- `ERROR: JAVA_HOME is not set` — export `JAVA_HOME`; `sdkmanager` and Gradle
-  both need it.
-- `SDK location not found` — export `ANDROID_HOME=~/Android/Sdk`.
-- `./gradlew: Permission denied` — `chmod +x android/gradlew`.
-- `adb: no devices/emulators found` — connect the phone over wireless
-  debugging, or install the APK manually.
+Back up the upload key and its credentials. Keep keystores, signing credentials,
+and `android/local.properties` out of source control.

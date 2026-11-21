@@ -14,7 +14,7 @@
 
   var SIZE = 9;
   var CELL_COUNT = SIZE * SIZE;
-  var DIFFICULTIES = ['easy', 'medium', 'hard'];
+  var DIFFICULTIES = window.SudokuCore ? window.SudokuCore.DIFFICULTIES : [];
 
   var SAVE_KEY = 'sudoku_save_v1';
   var STATS_KEY = 'sudoku_stats_v1';
@@ -77,6 +77,26 @@
     var pattern = allowZero ? /^[0-9]+$/ : /^[1-9]+$/;
     if (!pattern.test(value)) return null;
     return value.split('').map(Number);
+  }
+
+  function encodeNotes(notes) {
+    return notes.map(function (set) {
+      return Array.from(set).sort(function (a, b) { return a - b; }).join('');
+    }).join('.');
+  }
+
+  function decodeNotes(encoded) {
+    if (typeof encoded !== 'string') return null;
+    var segments = encoded.split('.');
+    if (segments.length !== CELL_COUNT) return null;
+
+    var notes = [];
+    for (var index = 0; index < CELL_COUNT; index++) {
+      var segment = segments[index];
+      if (!/^[1-9]{0,9}$/.test(segment)) return null;
+      notes.push(new Set(segment.split('').map(Number)));
+    }
+    return notes;
   }
 
   function flatToGrid(flat) {
@@ -171,6 +191,7 @@
     this.errors = new Set();
     this.conflicts = new Set(); // user cells that duplicate a row/column/box value
     this.highlightDigit = 0; // 1..9 while highlighting a given cell's digit
+    this.pendingHint = null;
     this.menuOpen = false;
     this.finished = false;
     this.generating = false;
@@ -258,6 +279,18 @@
     this.dom.autoNotes = $('auto-notes-btn');
     this.dom.erase = $('erase-btn');
     this.dom.pause = $('pause-btn');
+    this.dom.pauseLabel = $('pause-label');
+    this.dom.hintBtn = $('hint-btn');
+    this.dom.hintOverlay = $('hint-overlay');
+    this.dom.hintTitle = $('hint-title');
+    this.dom.hintMessage = $('hint-message');
+    this.dom.hintSteps = $('hint-steps');
+    this.dom.hintAction = $('hint-action');
+    this.dom.hintClose = $('hint-close');
+    this.dom.helpBtn = $('help-btn');
+    this.dom.helpOverlay = $('help-overlay');
+    this.dom.helpTitle = $('help-title');
+    this.dom.helpClose = $('help-close');
     this.dom.numpad = $('numpad');
     this.dom.saveStatus = $('save-status');
     this.dom.statusBanner = $('status-banner');
@@ -267,16 +300,17 @@
     this.dom.drawerPauseLabel = $('drawer-pause-label');
     this.dom.drawerReset = $('drawer-reset');
     this.dom.drawerNew = $('drawer-new');
+    this.dom.drawerHelp = $('drawer-help');
     this.dom.drawerFeedback = $('drawer-feedback');
     this.dom.drawerClose = $('drawer-close');
     this.dom.drawerDifficulty = $('drawer-difficulty');
     this.dom.feedbackBtn = $('feedback-btn');
     this.dom.feedbackOverlay = $('feedback-overlay');
     this.dom.feedbackForm = $('feedback-form');
-    this.dom.feedbackType = $('feedback-type');
-    this.dom.feedbackSubject = $('feedback-subject');
+    this.dom.feedbackMessage = $('feedback-message');
     this.dom.feedbackDetails = $('feedback-details');
     this.dom.feedbackError = $('feedback-error');
+    this.dom.feedbackSubmit = $('feedback-submit');
     this.dom.feedbackCancel = $('feedback-cancel');
 
     this.dom.resultOverlay = $('result-overlay');
@@ -391,6 +425,27 @@
     this.dom.pauseResume.addEventListener('click', function () {
       self.resumeGame();
     });
+    this.dom.hintBtn.addEventListener('click', function () {
+      self.openHint();
+    });
+    this.dom.hintClose.addEventListener('click', function () {
+      self.closeHint();
+    });
+    this.dom.hintAction.addEventListener('click', function () {
+      self.showHintOnBoard();
+    });
+    this.dom.hintOverlay.addEventListener('click', function (event) {
+      if (event.target === self.dom.hintOverlay) self.closeHint();
+    });
+    this.dom.helpBtn.addEventListener('click', function () {
+      self.openHelp();
+    });
+    this.dom.helpClose.addEventListener('click', function () {
+      self.closeHelp();
+    });
+    this.dom.helpOverlay.addEventListener('click', function (event) {
+      if (event.target === self.dom.helpOverlay) self.closeHelp();
+    });
 
     this.dom.menuBtn.addEventListener('click', function () {
       self.toggleMenu();
@@ -412,6 +467,10 @@
     this.dom.drawerNew.addEventListener('click', function () {
       self.closeMenu();
       self.goHome();
+    });
+    this.dom.drawerHelp.addEventListener('click', function () {
+      self.closeMenu();
+      self.openHelp();
     });
     this.dom.drawerFeedback.addEventListener('click', function () {
       self.closeMenu();
@@ -473,6 +532,7 @@
     }
 
     if (!this.puzzle || this.view !== 'game') return;
+    if (!this.dom.hintOverlay.hidden || !this.dom.helpOverlay.hidden || !this.dom.feedbackOverlay.hidden) return;
 
     if (this.paused) {
       if (key === 'p' || key === 'P' || key === 'Escape') {
@@ -682,6 +742,7 @@
       } else {
         label += 'empty';
       }
+      if (this.errors.has(index)) label += ', incorrect';
       if (this.conflicts.has(index)) label += ', conflicts with another ' + value;
       cell.setAttribute('aria-label', label);
     }
@@ -699,12 +760,12 @@
     this.renderStats();
   };
 
-  SudokuGame.prototype.digitCounts = function () {
+  SudokuGame.prototype.countUnconflictedDigits = function () {
     var counts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     if (!this.values) return counts;
     for (var i = 0; i < CELL_COUNT; i++) {
       var value = this.values[i];
-      if (value >= 1 && value <= 9) counts[value] += 1;
+      if (value !== 0 && !this.conflicts.has(i)) counts[value] += 1;
     }
     return counts;
   };
@@ -712,24 +773,21 @@
   SudokuGame.prototype.updateNumpad = function () {
     if (!this.values || this.numpadButtons.length === 0) return;
 
-    var counts = this.digitCounts();
+    var counts = this.countUnconflictedDigits();
     var locked = this.finished || this.generating || this.paused;
-    var highlighting = this.highlightDigit > 0;
+    var canHighlight = this.selected !== null && this.puzzle[this.selected] !== 0;
 
     this.numpadButtons.forEach(function (button) {
       var digit = Number(button.dataset.n);
       var complete = counts[digit] >= 9;
-      var disabled = locked || (complete && !highlighting);
+      var active = digit === this.highlightDigit;
+      var label = complete ? 'Digit ' + digit + ' is complete' : 'Enter ' + digit;
+      if (canHighlight) label = (active ? 'Highlighting ' : 'Highlight ') + digit;
 
-      button.disabled = disabled;
+      button.disabled = locked || (complete && !canHighlight);
       button.classList.toggle('numpad__btn--complete', complete);
-      button.classList.toggle('numpad__btn--active', digit === this.highlightDigit);
-      button.setAttribute(
-        'aria-label',
-        digit === this.highlightDigit
-          ? 'Highlighting ' + digit
-          : complete ? 'Digit ' + digit + ' is complete' : 'Enter ' + digit
-      );
+      button.classList.toggle('numpad__btn--active', active);
+      button.setAttribute('aria-label', label);
     }, this);
   };
 
@@ -928,7 +986,8 @@
   SudokuGame.prototype.showHome = function () {
     if (this.generating) return;
 
-    if (this.view === 'game' && this.puzzle && !this.finished) {
+    var leavingGame = this.view === 'game';
+    if (leavingGame && this.puzzle && !this.finished) {
       if (!this.paused) this.pauseTimer();
       this.saveNow();
     }
@@ -939,6 +998,8 @@
     this.hideResult();
     this.closeMenu();
     this.closeFeedback();
+    this.closeHelp();
+    this.closeHint();
 
     if (this.dom.homeScreen) this.dom.homeScreen.hidden = false;
     if (this.dom.gameScreen) this.dom.gameScreen.hidden = true;
@@ -950,6 +1011,7 @@
     this.refreshHome();
     this.setSaveStatus(this.savedPreview ? 'Saved game available' : 'No game in progress');
     document.title = 'Sudoku';
+    if (leavingGame) window.scrollTo(0, 0);
   };
 
   SudokuGame.prototype.showGame = function () {
@@ -963,6 +1025,7 @@
 
     this.updateDifficultyUI();
     this.renderTimer();
+    window.scrollTo(0, 0);
   };
 
   // ----- menu ---------------------------------------------------------------
@@ -977,17 +1040,18 @@
     }
     if (this.dom.drawerBackdrop) this.dom.drawerBackdrop.hidden = false;
     if (this.dom.menuBtn) this.dom.menuBtn.setAttribute('aria-expanded', 'true');
-    if (this.dom.drawerPauseLabel) {
-      this.dom.drawerPauseLabel.textContent = this.paused ? 'Resume' : 'Pause';
-    }
     if (this.dom.drawerDifficulty) {
       this.dom.drawerDifficulty.textContent = capitalize(this.difficulty);
     }
     if (this.dom.drawerReset) this.dom.drawerReset.disabled = this.finished;
+    if (this.dom.drawerClose) this.dom.drawerClose.focus();
   };
 
   SudokuGame.prototype.closeMenu = function () {
     this.menuOpen = false;
+    if (this.dom.drawer && this.dom.drawer.contains(document.activeElement) && this.dom.menuBtn) {
+      this.dom.menuBtn.focus();
+    }
     if (this.dom.drawer) {
       this.dom.drawer.classList.remove('drawer--open');
       this.dom.drawer.setAttribute('aria-hidden', 'true');
@@ -1007,6 +1071,15 @@
       this.closeFeedback();
       return true;
     }
+    if (!this.dom.helpOverlay.hidden) {
+      this.closeHelp();
+      return true;
+    }
+    if (!this.dom.hintOverlay.hidden) {
+      this.closeHint();
+      return true;
+    }
+    if (this.paused) return false;
     if (this.menuOpen) {
       this.closeMenu();
       return true;
@@ -1018,44 +1091,154 @@
     return false;
   };
 
+  // ----- help and hints -----------------------------------------------------
+
+  SudokuGame.prototype.openHelp = function () {
+    this.dom.helpOverlay.hidden = false;
+    this.dom.helpOverlay.querySelector('.overlay__card').scrollTop = 0;
+    this.dom.helpTitle.focus({ preventScroll: true });
+  };
+
+  SudokuGame.prototype.closeHelp = function () {
+    if (this.dom.helpOverlay.hidden) return;
+    this.dom.helpOverlay.hidden = true;
+    var trigger = this.paused && this.view === 'game' ? this.dom.pauseResume
+      : this.view === 'game' ? this.dom.menuBtn : this.dom.helpBtn;
+    trigger.focus({ preventScroll: true });
+  };
+
+  function renderHintSteps(list, steps) {
+    list.replaceChildren();
+    steps.forEach(function (step) {
+      var item = document.createElement('li');
+      if (typeof step === 'string') {
+        item.textContent = step;
+      } else {
+        var detail = document.createElement('details');
+        var summary = document.createElement('summary');
+        summary.textContent = step.label;
+        detail.className = 'hint-detail';
+        detail.appendChild(summary);
+        detail.addEventListener('toggle', function () {
+          if (!detail.open || detail.querySelector('ol')) return;
+          var child = document.createElement('ol');
+          child.className = 'guide-steps';
+          renderHintSteps(child, step.expand());
+          detail.appendChild(child);
+        });
+        item.appendChild(detail);
+      }
+      list.appendChild(item);
+    });
+  }
+
+  SudokuGame.prototype.openHint = function () {
+    if (!this.values || this.view !== 'game' || this.finished || this.paused || this.generating) return;
+
+    var wrong = this.incorrectCells();
+    var move = wrong.length === 0 ? this.core.findHint(flatToGrid(this.values)) : null;
+    this.pendingHint = { wrong: wrong, move: move };
+
+    var steps = [];
+    if (wrong.length > 0) {
+      this.dom.hintTitle.textContent = 'Check your entries';
+      this.dom.hintMessage.textContent = wrong.length === 1
+        ? 'One filled cell is incorrect. Would you like to highlight it?'
+        : wrong.length + ' filled cells are incorrect. Would you like to highlight them?';
+      this.dom.hintAction.textContent = wrong.length === 1 ? 'Highlight error' : 'Highlight errors';
+    } else if (move) {
+      this.dom.hintTitle.textContent = move.technique;
+      this.dom.hintMessage.textContent = 'Put ' + move.value + ' in row ' + (move.row + 1) +
+        ', column ' + (move.col + 1) + '.';
+      this.dom.hintAction.textContent = 'Show cell';
+      steps = move.steps.concat(move.explanation);
+    } else {
+      this.dom.hintTitle.textContent = 'Hint';
+      this.dom.hintMessage.textContent = 'No forced move was found on this board.';
+    }
+
+    renderHintSteps(this.dom.hintSteps, steps);
+    this.dom.hintSteps.hidden = steps.length === 0;
+    this.dom.hintAction.hidden = !move && wrong.length === 0;
+    this.dom.hintOverlay.hidden = false;
+    this.dom.hintSteps.scrollTop = 0;
+    this.dom.hintTitle.focus({ preventScroll: true });
+  };
+
+  SudokuGame.prototype.closeHint = function () {
+    if (this.dom.hintOverlay.hidden) return;
+    this.dom.hintOverlay.hidden = true;
+    this.pendingHint = null;
+    if (this.view === 'game') {
+      var trigger = this.paused ? this.dom.pauseResume : this.dom.hintBtn;
+      trigger.focus({ preventScroll: true });
+    }
+  };
+
+  SudokuGame.prototype.showHintOnBoard = function () {
+    var hint = this.pendingHint;
+    this.closeHint();
+    if (!hint) return;
+    if (hint.wrong.length > 0) {
+      this.errors = new Set(hint.wrong);
+      this.renderBoard();
+      this.cells[hint.wrong[0]].scrollIntoView({ block: 'center', inline: 'nearest' });
+    } else if (hint.move) {
+      var index = hint.move.row * SIZE + hint.move.col;
+      this.selectCell(index);
+      this.cells[index].scrollIntoView({ block: 'center', inline: 'nearest' });
+    }
+  };
+
   // ----- feedback -----------------------------------------------------------
 
   var FEEDBACK_REPO = 'kalamcs/sudoku-android';
 
   SudokuGame.prototype.openFeedback = function () {
     if (!this.dom.feedbackOverlay) return;
+    var byEmail = Boolean(window.SUDOKU_FEEDBACK_EMAIL);
+    this.dom.feedbackMessage.textContent = byEmail
+      ? 'Review the draft in your email app and send it from the account you choose.'
+      : 'Review your feedback on GitHub before submitting it. A GitHub account is required.';
+    this.dom.feedbackSubmit.textContent = byEmail ? 'Open email draft' : 'Open on GitHub';
     if (this.dom.feedbackError) this.dom.feedbackError.hidden = true;
     this.dom.feedbackOverlay.hidden = false;
+    this.dom.feedbackOverlay.querySelector('.overlay__card').scrollTop = 0;
 
     // Writing a report shouldn't count towards the solve time.
     if (this.view === 'game' && !this.paused && !this.finished && !this.generating) {
       this.pauseGame('feedback');
     }
 
-    if (this.dom.feedbackSubject) {
-      var subject = this.dom.feedbackSubject;
+    if (this.dom.feedbackDetails) {
+      var details = this.dom.feedbackDetails;
       window.setTimeout(function () {
         try {
-          subject.focus({ preventScroll: true });
+          details.focus({ preventScroll: true });
         } catch (err) {
-          subject.focus();
+          details.focus();
         }
       }, 30);
     }
   };
 
-  SudokuGame.prototype.closeFeedback = function () {
+  SudokuGame.prototype.closeFeedback = function (keepPaused) {
     var wasOpen = this.dom.feedbackOverlay && !this.dom.feedbackOverlay.hidden;
     if (this.dom.feedbackOverlay) this.dom.feedbackOverlay.hidden = true;
     if (this.dom.feedbackError) this.dom.feedbackError.hidden = true;
 
-    // Writing feedback only paused the clock; resume when the form closes.
     if (wasOpen && this.view === 'game' && this.paused && this.pausedReason === 'feedback') {
-      this.resumeGame();
+      if (keepPaused) {
+        this.pausedReason = 'hidden';
+        this.updatePauseUI();
+        this.saveNow();
+      } else {
+        this.resumeGame();
+      }
     }
   };
 
-  SudokuGame.prototype.buildFeedbackUrl = function (type, subject, details) {
+  SudokuGame.prototype.formatFeedback = function (details) {
     var info = window.SUDOKU_APP_INFO || {};
     var lines = [
       details,
@@ -1067,32 +1250,46 @@
       'Device: ' + navigator.userAgent
     ];
 
-    var params = new URLSearchParams();
-    params.set('title', (type === 'feature' ? '[Feature] ' : '[Bug] ') + subject);
-    params.set('body', lines.join('\n'));
-    params.set('labels', type === 'feature' ? 'enhancement' : 'bug');
-    return 'https://github.com/' + FEEDBACK_REPO + '/issues/new?' + params.toString();
+    return lines.join('\n');
   };
 
-  SudokuGame.prototype.submitFeedback = function () {
-    if (!this.dom.feedbackSubject || !this.dom.feedbackDetails) return;
-
-    var type = this.dom.feedbackType && this.dom.feedbackType.value === 'feature' ? 'feature' : 'bug';
-    var subject = this.dom.feedbackSubject.value.trim();
+  SudokuGame.prototype.submitFeedback = async function () {
+    if (this.dom.feedbackSubmit.disabled) return;
     var details = this.dom.feedbackDetails.value.trim();
 
-    if (!subject || !details) {
-      if (this.dom.feedbackError) {
-        this.dom.feedbackError.textContent = 'Please add a subject and some details.';
-        this.dom.feedbackError.hidden = false;
-      }
+    if (!details) {
+      this.dom.feedbackError.textContent = 'Please enter some feedback.';
+      this.dom.feedbackError.hidden = false;
       return;
     }
 
-    var url = this.buildFeedbackUrl(type, subject, details);
-    this.closeFeedback();
-    if (this.dom.feedbackForm) this.dom.feedbackForm.reset();
-    this.openExternalUrl(url);
+    var subject = 'Sudoku for Android feedback';
+    var body = this.formatFeedback(details);
+    var recipient = window.SUDOKU_FEEDBACK_EMAIL;
+    this.dom.feedbackError.hidden = true;
+    if (recipient) {
+      this.dom.feedbackSubmit.disabled = true;
+      try {
+        if (window.sudokuOpenEmail) {
+          await window.sudokuOpenEmail({ recipient: recipient, subject: subject, body: body });
+        } else {
+          window.location.href = 'mailto:' + encodeURIComponent(recipient).replace('%40', '@') +
+            '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+        }
+      } catch (err) {
+        this.dom.feedbackError.textContent = 'Could not open an email app. Your feedback is still here.';
+        this.dom.feedbackError.hidden = false;
+        this.dom.feedbackError.scrollIntoView({ block: 'nearest' });
+        return;
+      } finally {
+        this.dom.feedbackSubmit.disabled = false;
+      }
+    } else {
+      var params = new URLSearchParams({ title: subject, body: body });
+      this.openExternalUrl('https://github.com/' + FEEDBACK_REPO + '/issues/new?' + params.toString());
+    }
+    this.closeFeedback(Boolean(recipient));
+    this.dom.feedbackForm.reset();
   };
 
   SudokuGame.prototype.openExternalUrl = function (url) {
@@ -1301,7 +1498,7 @@
 
   SudokuGame.prototype.pauseGame = function (reason) {
     if (this.view !== 'game' || this.paused || this.finished || this.generating) return;
-    if (this.dom.resultOverlay && !this.dom.resultOverlay.hidden) return;
+    if (reason !== 'hidden' && this.dom.resultOverlay && !this.dom.resultOverlay.hidden) return;
 
     this.paused = true;
     this.pausedReason = reason || 'manual';
@@ -1325,9 +1522,11 @@
     this.startTimer();
     this.saveNow();
 
-    if (this.selected !== null && this.cells[this.selected]) {
+    var focusTarget = this.dom.resultOverlay && !this.dom.resultOverlay.hidden
+      ? this.dom.resultPrimary : this.cells[this.selected];
+    if (focusTarget) {
       try {
-        this.cells[this.selected].focus({ preventScroll: true });
+        focusTarget.focus({ preventScroll: true });
       } catch (err) {
         /* ignore focus errors */
       }
@@ -1351,16 +1550,18 @@
     if (this.dom.pause) {
       this.dom.pause.disabled = this.finished || this.generating;
       this.dom.pause.setAttribute('aria-pressed', this.paused ? 'true' : 'false');
-      this.dom.pause.textContent = this.paused ? '▶ Resume' : '⏸ Pause';
+      this.dom.pauseLabel.textContent = this.paused ? 'Resume' : 'Pause';
     }
 
     if (this.dom.drawerPauseLabel) {
       this.dom.drawerPauseLabel.textContent = this.paused ? 'Resume' : 'Pause';
+      this.dom.drawerPause.classList.toggle('is-resume', this.paused);
     }
 
     if (this.dom.autoNotes) {
       this.dom.autoNotes.disabled = this.finished || this.generating || this.paused;
     }
+    this.dom.hintBtn.disabled = this.finished || this.generating || this.paused;
 
     if (this.dom.pauseMessage) {
       this.dom.pauseMessage.textContent = this.pausedReason === 'hidden'
@@ -1475,19 +1676,18 @@
 
   SudokuGame.prototype.snapshot = function () {
     return {
-      values: this.values.slice(),
-      notes: this.notes.map(function (set) { return new Set(set); })
+      values: this.values.join(''),
+      notes: encodeNotes(this.notes)
     };
   };
 
   SudokuGame.prototype.restoreSnapshot = function (snapshot) {
-    this.values = snapshot.values.slice();
-    this.notes = snapshot.notes.map(function (set) { return new Set(set); });
+    this.values = parseDigitString(snapshot.values, true);
+    this.notes = decodeNotes(snapshot.notes);
   };
 
   SudokuGame.prototype.pushHistory = function () {
     this.undoStack.push(this.snapshot());
-    if (this.undoStack.length > 300) this.undoStack.shift();
     this.redoStack = [];
     this.updateUndoButtons();
   };
@@ -1521,9 +1721,7 @@
       return;
     }
 
-    // While highlighting, complete digits stay pressable so the user can keep
-    // switching which digit is highlighted.
-    if (!this.highlightDigit && this.digitCounts()[number] >= 9) return;
+    if (this.countUnconflictedDigits()[number] >= 9) return;
     if (this.notesMode) {
       this.toggleNote(this.selected, number);
     } else {
@@ -1640,6 +1838,14 @@
 
   // ----- evaluation --------------------------------------------------------
 
+  SudokuGame.prototype.incorrectCells = function () {
+    var wrong = [];
+    for (var index = 0; index < CELL_COUNT; index++) {
+      if (this.values[index] !== 0 && this.values[index] !== this.solution[index]) wrong.push(index);
+    }
+    return wrong;
+  };
+
   SudokuGame.prototype.evaluateBoard = function () {
     if (this.finished) return;
 
@@ -1647,10 +1853,7 @@
       if (this.values[i] === 0) return; // not complete yet
     }
 
-    var wrong = [];
-    for (var j = 0; j < CELL_COUNT; j++) {
-      if (this.values[j] !== this.solution[j]) wrong.push(j);
-    }
+    var wrong = this.incorrectCells();
 
     if (wrong.length === 0) {
       this.handleWin();
@@ -1791,11 +1994,7 @@
       p: this.puzzle.join(''),
       s: this.solution.join(''),
       b: this.values.join(''),
-      n: this.notes
-        .map(function (set) {
-          return Array.from(set).sort(function (a, b) { return a - b; }).join('');
-        })
-        .join('.'),
+      n: encodeNotes(this.notes),
       e: Math.floor(this.getElapsed()),
       w: this.finished && this.errors.size === 0 ? 1 : 0,
       z: this.paused ? 1 : 0,
@@ -1865,18 +2064,9 @@
       return { restored: false, difficulty: difficulty };
     }
 
-    var noteSegments = typeof state.n === 'string' ? state.n.split('.') : [];
-    if (noteSegments.length !== CELL_COUNT) {
+    var notes = decodeNotes(state.n);
+    if (!notes) {
       return { restored: false, difficulty: difficulty };
-    }
-
-    var notes = [];
-    for (var n = 0; n < CELL_COUNT; n++) {
-      var segment = noteSegments[n];
-      if (!/^[1-9]{0,9}$/.test(segment)) {
-        return { restored: false, difficulty: difficulty };
-      }
-      notes.push(new Set(segment.split('').map(Number)));
     }
 
     // Sanitize: givens always win, filled cells have no notes.

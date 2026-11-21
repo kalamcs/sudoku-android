@@ -8,6 +8,9 @@
  */
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
+import { registerPlugin } from '@capacitor/core';
+
+window.SUDOKU_FEEDBACK_EMAIL = __SUDOKU_FEEDBACK_EMAIL__;
 
 const isNative = () => window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
 
@@ -54,23 +57,18 @@ async function initNative() {
 
   // Android back button: close whichever layer is on top, then pause, then
   // return home, and only close the app when there is nothing left to go back to.
-  await App.addListener('backButton', ({ canGoBack }) => {
+  await App.addListener('backButton', () => {
     const g = game();
     if (!g) return;
 
     if (g.closeOverlays && g.closeOverlays()) return;
 
-    if (g.view === 'game' && !g.finished) {
-      if (g.paused) {
+    if (g.view === 'game') {
+      if (g.finished || g.paused) {
         g.showHome();
       } else {
         g.pauseGame('manual');
       }
-      return;
-    }
-
-    if (canGoBack && g.view === 'home') {
-      App.exitApp();
       return;
     }
 
@@ -91,6 +89,8 @@ async function initNative() {
 }
 
 if (isNative()) {
+  const Feedback = registerPlugin('SudokuFeedback');
+  window.sudokuOpenEmail = (draft) => Feedback.openEmail(draft);
   initNative().catch((err) => {
     // The game must stay playable even if a native plugin is unavailable.
     console.error('Sudoku: native integration failed', err);

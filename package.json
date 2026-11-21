@@ -2,12 +2,13 @@
   "name": "sudoku-android",
   "version": "0.1.0",
   "private": true,
-  "description": "Sudoku for Android — Capacitor shell around the Sudoku web game",
+  "description": "Sudoku for Android",
   "scripts": {
-    "build:native": "esbuild src/native.js --bundle --format=iife --target=es2020 --outfile=www/native.js",
-    "sync": "npm run build:native && cap sync android",
-    "apk": "npm run sync && cd android && ./gradlew assembleDebug",
-    "aab": "npm run sync && cd android && ./gradlew bundleRelease",
+    "test": "cd android && ./gradlew testDebugUnitTest",
+    "test:web": "node --test",
+    "build:web-bridge": "node scripts/build-native.mjs",
+    "apk": "cd android && ./gradlew assembleDebug",
+    "aab": "cd android && ./gradlew bundleRelease",
     "open": "cap open android",
     "icons": "node scripts/generate-icons.mjs"
   },
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.6.2",
     "esbuild": "^0.28.2",
+    "jsdom": "^26.1.0",
     "sharp": "^0.35.5"
   }
 }

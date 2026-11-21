@@ -10,7 +10,8 @@
   "plugins": {
     "SystemBars": {
       "style": "LIGHT",
-      "insetsHandling": "css"
+      "insetsHandling": "css",
+      "initialViewportFitValueHint": "cover"
     },
     "SplashScreen": {
       "launchShowDuration": 400,
