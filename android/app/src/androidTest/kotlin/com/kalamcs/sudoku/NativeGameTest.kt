@@ -1,8 +1,5 @@
 package com.kalamcs.sudoku
 
-import android.app.Activity
-import android.app.Instrumentation
-import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.drawable.ColorDrawable
 import android.os.SystemClock
@@ -12,9 +9,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
 import android.widget.TextView
+import androidx.appcompat.widget.AppCompatButton
 import androidx.core.view.ViewCompat
 import androidx.lifecycle.Lifecycle
-import androidx.appcompat.widget.AppCompatButton
 import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.Espresso.pressBack
@@ -24,27 +21,34 @@ import androidx.test.espresso.action.GeneralClickAction
 import androidx.test.espresso.action.Press
 import androidx.test.espresso.action.Tap
 import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.action.ViewActions.replaceText
 import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.ViewMatchers.hasErrorText
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
-import androidx.test.espresso.matcher.ViewMatchers.isChecked
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.isEnabled
+import androidx.test.espresso.matcher.ViewMatchers.isSelected
 import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
+import androidx.test.espresso.matcher.ViewMatchers.withHint
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.espresso.util.TreeIterables
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
+import com.google.android.gms.oss.licenses.OssLicensesMenuActivity
+import com.google.firebase.FirebaseApp
 import org.hamcrest.Matcher
+import org.hamcrest.Matchers.allOf
 import org.hamcrest.Matchers.not
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class NativeGameTest {
@@ -63,6 +67,8 @@ class NativeGameTest {
             }
             onView(withText("Statistics")).perform(scrollTo()).check(matches(isDisplayed()))
             onView(withText("Best Time\n(Achieved On)")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("How to Play")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Settings")).perform(scrollTo()).check(matches(isDisplayed()))
         }
     }
 
@@ -121,13 +127,11 @@ class NativeGameTest {
         }
     }
 
-    @Test fun rerenderingHomeDismissesItsDiscardConfirmation() {
+    @Test fun homeKeepsTheSavedPuzzleWithoutADiscardAction() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
-            onView(withText("Discard")).perform(scrollTo(), click())
-            onView(withText("Discard your saved game?")).check(matches(isDisplayed()))
+            onView(withText("Discard")).check(doesNotExist())
             scenario.onActivity { it.onConfigurationChanged(Configuration(it.resources.configuration)) }
-            onView(withText("Discard your saved game?")).check(doesNotExist())
             onView(withText("Continue Puzzle")).check(matches(isDisplayed()))
         }
     }
@@ -266,13 +270,13 @@ class NativeGameTest {
                 onView(withText("Continue Puzzle")).perform(click())
                 assertKeepScreenOn(scenario, false)
                 pressBack()
-                onView(withContentDescription("Settings")).perform(click())
-                onView(withText("Use Android setting")).perform(scrollTo()).check(matches(isChecked()))
-                onView(withText("At least 3 minutes")).perform(scrollTo(), click()).check(matches(isChecked()))
+                onView(withText("Settings")).perform(scrollTo(), click())
+                onView(withContentDescription("Screen Timeout, Use System")).perform(click())
+                onView(withText("At least 3 minutes")).perform(click())
                 assertEquals(ScreenTimeout.THREE_MINUTES, preferences.load().screenTimeout)
                 scenario.recreate()
-                onView(withText("At least 3 minutes")).perform(scrollTo()).check(matches(isChecked()))
-                onView(withText("Back")).perform(scrollTo(), click())
+                onView(withContentDescription("Screen Timeout, At least 3 minutes")).check(matches(isDisplayed()))
+                onView(withContentDescription("Back")).perform(click())
                 assertKeepScreenOn(scenario, false)
                 onView(withText("Continue Puzzle")).perform(click())
                 assertKeepScreenOn(scenario, true)
@@ -310,29 +314,50 @@ class NativeGameTest {
         }
     }
 
-    @Test
-    @SdkSuppress(minSdkVersion = 26)
-    fun feedbackOpensAnAddressedEmailDraftWithOneTap() {
+    @Test fun feedbackValidatesTheDraftAndDoesNotConfirmAnUnconfiguredWrite() {
         installFixture()
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val draft = AtomicReference<Intent>()
-        val monitor = object : Instrumentation.ActivityMonitor() {
-            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
-                if (intent.action != Intent.ACTION_SENDTO) return null
-                draft.set(Intent(intent))
-                return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Settings")).perform(scrollTo(), click())
+            onView(withContentDescription("Send Feedback")).perform(scrollTo(), click())
+            val send = onView(allOf(withText("Send Feedback"), isAssignableFrom(AppCompatButton::class.java)))
+            val feedback = onView(withHint("Tell us what you think…"))
+            val email = onView(withHint("Your email address"))
+            email.check(matches(not(isEnabled())))
+            send.perform(scrollTo(), click())
+            feedback.check(matches(hasErrorText("Enter your feedback.")))
+            onView(withText("Bug Report")).perform(scrollTo(), click()).check(matches(isSelected()))
+            feedback.perform(scrollTo(), replaceText("A report from the test device"))
+            onView(withText("I’d like to be contacted about this feedback")).perform(scrollTo(), click())
+            email.check(matches(isEnabled())).perform(replaceText("not-an-email"))
+            send.perform(scrollTo(), click())
+            email.check(matches(hasErrorText("Enter a valid email address.")))
+
+            // A configured build must never send a test document to the project's live database.
+            if (FirebaseApp.getApps(context).isEmpty()) {
+                email.perform(replaceText("test@example.com"))
+                send.perform(scrollTo(), click())
+                onView(withText("Feedback is unavailable in this build.")).perform(scrollTo()).check(matches(isDisplayed()))
+                onView(withText("A report from the test device")).check(matches(isDisplayed()))
+                onView(withText("Feedback Sent!")).check(doesNotExist())
             }
         }
-        instrumentation.addMonitor(monitor)
-        try {
-            ActivityScenario.launch(SudokuActivity::class.java).use {
-                onView(withText("Send feedback")).perform(scrollTo(), click())
-                val address = checkNotNull(draft.get()?.data)
-                assertEquals("mailto", address.scheme)
-                assertEquals("${BuildConfig.FEEDBACK_EMAIL}?subject=Sudoku for Android feedback", address.schemeSpecificPart)
+    }
+
+    @Test fun aboutShowsTheAppVersionAndPackagedLicenses() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Settings")).perform(scrollTo(), click())
+            onView(withContentDescription("About Sudoku")).perform(scrollTo(), click())
+            onView(withText("Version ${BuildConfig.VERSION_NAME}")).check(matches(isDisplayed()))
+            onView(withContentDescription("Open-source licenses")).perform(click())
+            val instrumentation = InstrumentationRegistry.getInstrumentation()
+            instrumentation.waitForIdleSync()
+            instrumentation.runOnMainSync {
+                val resumed = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                assertTrue(resumed.any { it is OssLicensesMenuActivity })
             }
-        } finally {
-            instrumentation.removeMonitor(monitor)
+            pressBack()
         }
     }
 
@@ -351,17 +376,28 @@ class NativeGameTest {
 
         try {
             ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
-                onView(withContentDescription("Settings")).perform(click())
-                onView(withText("Light")).check(matches(isChecked()))
-                onView(withText("Ocean Blue")).check(matches(isChecked()))
-                onView(withText("Back")).perform(click())
+                onView(withText("Settings")).perform(scrollTo(), click())
+                onView(withText("Light")).check(matches(isSelected()))
+                onView(withContentDescription("Colour Palette, Ocean Blue")).perform(click())
+                onView(withContentDescription("Ocean Blue")).check(matches(isSelected()))
+                onView(withId(R.id.page_content)).check { view, error ->
+                    if (error != null) throw error
+                    val previews = TreeIterables.depthFirstViewTraversal(view).filterIsInstance<BoardSampleView>()
+                    assertEquals(GameTheme.entries.size * 2, previews.size)
+                }
+                onView(withContentDescription("Back")).perform(click())
+                onView(withContentDescription("Back")).perform(click())
                 onView(withText("Continue Puzzle")).perform(click())
                 onView(withContentDescription("Game menu")).perform(click())
                 onView(withText("Settings")).perform(click())
                 onView(withText("Dark")).perform(click())
-                onView(withText("Royal Purple")).perform(scrollTo(), click()).check(matches(isChecked()))
+                onView(withContentDescription("Colour Palette, Ocean Blue")).perform(click())
+                onView(withContentDescription("Royal Purple")).perform(scrollTo(), click()).check(matches(isSelected()))
+                scenario.recreate()
+                onView(withContentDescription("Royal Purple")).check(matches(isSelected()))
                 assertEquals(AppearanceSettings(AppearanceMode.DARK, GameTheme.PURPLE), preferences.load())
-                onView(withText("Back")).perform(scrollTo(), click())
+                onView(withContentDescription("Back")).perform(click())
+                onView(withContentDescription("Back")).perform(click())
                 onView(withContentDescription("Difficulty Extreme")).check(matches(isDisplayed()))
                 scenario.onActivity { activity ->
                     val root = activity.findViewById<View>(R.id.page_scroll).parent as View
@@ -372,8 +408,8 @@ class NativeGameTest {
                 onView(withText("Settings")).perform(click())
                 onView(withText("System")).perform(click())
                 scenario.recreate()
-                onView(withText("System")).check(matches(isChecked()))
-                onView(withText("Royal Purple")).check(matches(isChecked()))
+                onView(withText("System")).check(matches(isSelected()))
+                onView(withContentDescription("Colour Palette, Royal Purple")).check(matches(isDisplayed()))
             }
         } finally {
             preferences.save(initial)
@@ -425,9 +461,14 @@ class NativeGameTest {
             onView(withText("Continue Puzzle")).perform(click())
             onView(withContentDescription("Game menu")).perform(click())
             onView(withText("How to play")).perform(click())
+            onView(withText("Rules")).check(matches(isSelected()))
+            onView(withText("Sudoku Rules")).check(matches(isDisplayed()))
+            onView(withText("Advanced solving techniques")).check(doesNotExist())
+            onView(withText("Strategies")).perform(click()).check(matches(isSelected()))
+            onView(withText("Sudoku Rules")).check(doesNotExist())
             onView(withId(R.id.page_content)).check { view, error ->
                 if (error != null) throw error
-                val sections = listOf("Rules and controls", "Basic solving methods", "Advanced solving techniques")
+                val sections = listOf("Basic solving methods", "Advanced solving techniques")
                 val headings = TreeIterables.depthFirstViewTraversal(view)
                     .filterIsInstance<TextView>()
                     .map { it.text.toString() }
@@ -436,10 +477,28 @@ class NativeGameTest {
             }
             onView(withText(Technique.NAKED_PAIR.title)).perform(scrollTo(), click())
             onView(withText("Worked example")).check(matches(isDisplayed()))
-            onView(withText("Back")).perform(click())
-            onView(withText("How to play")).check(matches(isDisplayed()))
-            onView(withText("Back")).perform(click())
+            onView(withContentDescription("Back")).perform(click())
+            onView(withText("Strategies")).check(matches(isSelected()))
+            onView(withContentDescription("Back")).perform(click())
             onView(withContentDescription("Difficulty Extreme")).check(matches(isDisplayed()))
+        }
+    }
+
+    @Test fun howToPlayCanReturnToSettings() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
+            onView(withText("Settings")).perform(scrollTo(), click())
+            onView(withContentDescription("How to Play")).perform(scrollTo(), click())
+            onView(withText("Rules")).check(matches(isSelected()))
+            onView(withId(R.id.page_content)).check { view, error ->
+                if (error != null) throw error
+                assertEquals(3, TreeIterables.depthFirstViewTraversal(view).filterIsInstance<BoardSampleView>().size)
+            }
+            onView(withText("Strategies")).perform(click())
+            scenario.recreate()
+            onView(withText("Strategies")).check(matches(isSelected()))
+            pressBack()
+            onView(withText("Appearance")).check(matches(isDisplayed()))
         }
     }
 

@@ -1,7 +1,8 @@
 # Sudoku for Android
 
-An offline Sudoku game built with Kotlin and native Android Views. Puzzles are
-generated on the device. No account or network permission is required.
+A Sudoku game built with Kotlin and native Android Views. Puzzle generation,
+gameplay, saved games, and statistics work offline. Sending feedback uses
+Firebase with anonymous sign-in.
 
 - Package `com.kalamcs.sudoku`
 - Minimum Android 7.0 (API 24)
@@ -58,8 +59,9 @@ options. A **naked pair** reserves two digits for two cells in the same row,
 column, or box. A **proof by contradiction** rules out a candidate by showing
 that its forced consequences break a Sudoku rule.
 
-Open **How to play** from home or the game menu for board diagrams and worked
-examples of these techniques.
+Open **How to Play** from Home, Settings, or the game menu. **Rules** shows
+row, column, and box diagrams. **Strategies** groups basic and advanced methods
+and links to their worked examples.
 
 ## Puzzle difficulty
 
@@ -91,10 +93,11 @@ Open **Settings** from the home screen or the game menu. The app starts in
 **System** to follow Android's light or dark setting. Appearance and theme
 choices are saved independently.
 
-Choose Ocean Blue, Forest Green, Royal Purple, Warm Sand, Rose, or Slate.
-Each palette colors the puzzle, controls, notes, and worked examples in both
-light and dark modes. If your saved palette was retired, the app uses Ocean
-Blue with your saved light, dark, or system mode.
+Open **Colour Palette** to compare Ocean Blue, Forest Green, Royal Purple,
+Warm Sand, Rose, and Slate side by side in Light and Dark. The previews show
+the selected cell, matching digits, and candidate notes. Choosing a palette
+keeps your current Light, Dark, or System setting. If your saved palette was
+retired, the app uses Ocean Blue.
 
 ## Build and test
 
@@ -118,10 +121,47 @@ Node package installation is only needed for the old web tests and icon tools.
 `npm test` runs JVM unit tests. To run the Android UI tests, start an emulator
 or connect a test device and run `cd android && ./gradlew connectedDebugAndroidTest`.
 
-**Send feedback** opens a draft directly in the player's email app, addressed
-to `kalamcsdeveloper@gmail.com`. Players write and send the email there. To use
-a different recipient in a custom build, set
-`SUDOKU_FEEDBACK_EMAIL=feedback@example.com npm run apk`.
+## Set up in-app feedback
+
+1. Sign in to the [Firebase console](https://console.firebase.google.com/) with
+   the Google account that should own the feedback. Create a project and keep
+   it on the **Spark** plan. Google Analytics is optional.
+2. In **Authentication**, open **Sign-in method** and enable **Anonymous**.
+   The SDK signs in anonymously when feedback is submitted.
+3. In **Firestore Database**, create the default database in **Standard edition**
+   and choose its location. Start in **production mode**. In the **Rules** tab,
+   paste [firestore.rules](firestore.rules) and publish it. These rules validate
+   feedback and allow the app to create documents. Read feedback in the Firebase
+   console using your project account.
+4. Add an Android app to the Firebase project using package
+   `com.kalamcs.sudoku`. Download `google-services.json` into
+   `android/app/google-services.json`. The repository ignores that file so each
+   build can use the project its owner chooses.
+5. Run `npm run apk`. Install that APK and submit a test message from
+   **Settings → Send Feedback**. Check the **Data** tab in Firestore for the
+   `feedback` collection.
+
+For a file downloaded to Windows, copy it from the project root in WSL:
+
+```bash
+cp /mnt/c/Users/kalam/Downloads/google-services.json android/app/google-services.json
+```
+
+Builds without that file can play Sudoku and open the feedback form.
+Submissions require Firebase configuration and connectivity. Firestore stores
+the feedback type, message, app version, and submission time. It includes a
+contact email only when the player opts in.
+
+The [Firestore Standard free quota](https://firebase.google.com/docs/firestore/quotas)
+includes 20,000 writes and 50,000 reads per day and 1 GiB of storage. A feedback
+submission uses one write.
+
+To test the rules locally with the Firebase CLI and Node.js 22:
+
+```bash
+firebase emulators:exec --only auth,firestore --project demo-sudoku-feedback \
+  'node --test tests/firestore-rules.test.mjs'
+```
 
 ## Install on a phone
 

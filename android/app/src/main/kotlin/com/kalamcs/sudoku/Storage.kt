@@ -104,8 +104,6 @@ internal class GameStore(private val context: Context) {
     fun game() = SaveFormat.game(preferences.getString(SaveFormat.GAME, null))
     fun records() = SaveFormat.records(preferences.getString(SaveFormat.STATS, null))
     fun save(game: Game, now: Long) = preferences.edit().putString(SaveFormat.GAME, SaveFormat.encode(game, now)).apply()
-    fun discard() = preferences.edit().putString(SaveFormat.GAME, "").apply()
-
     // Keep the completed board and its win record in one preferences update.
     fun recordWin(game: Game, now: Long, records: Map<Difficulty, Record>) {
         preferences.edit().putString(SaveFormat.GAME, SaveFormat.encode(game, now))

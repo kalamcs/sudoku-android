@@ -1,12 +1,10 @@
 package com.kalamcs.sudoku
 
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.content.res.ColorStateList
 import android.graphics.drawable.ColorDrawable
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -28,7 +26,6 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -36,6 +33,8 @@ import androidx.appcompat.widget.AppCompatButton
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.ViewModelProvider
+import com.google.android.gms.oss.licenses.OssLicensesMenuActivity
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -44,11 +43,14 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 
 class SudokuActivity : AppCompatActivity() {
-    private enum class Screen { HOME, GAME, GUIDE, LESSON, SETTINGS }
+    private enum class Screen { HOME, GAME, GUIDE, LESSON, SETTINGS, PALETTE, ABOUT, FEEDBACK, FEEDBACK_SENT }
 
     private val ui by lazy { Ui(this) }
     private val store by lazy { GameStore(this) }
     private val guide by lazy { GuideScreen(this, ui) }
+    private val settings by lazy { SettingsScreen(this, ui) }
+    private val feedbackPage by lazy { FeedbackScreen(this, ui) }
+    private val feedbackModel by lazy { ViewModelProvider(this)[FeedbackModel::class.java] }
     private val puzzleWorker = Executors.newSingleThreadExecutor()
     private val hintWorker = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
@@ -56,9 +58,11 @@ class SudokuActivity : AppCompatActivity() {
     private lateinit var appearanceStore: AppearanceStore
     private lateinit var appearance: AppearanceSettings
     private var settingsOrigin = Screen.HOME
+    private var feedbackOrigin = Screen.SETTINGS
     private var game: Game? = null
     private var records = emptyMap<Difficulty, Record>()
     private var guideOrigin = Screen.HOME
+    private var guideTab = GuideTab.RULES
     private var guideReturnToIndex = true
     private var lesson: Technique? = null
     private var board: BoardView? = null
@@ -115,12 +119,18 @@ class SudokuActivity : AppCompatActivity() {
                 when (screen) {
                     Screen.LESSON -> leaveLesson()
                     Screen.GUIDE -> leaveGuide()
+                    Screen.PALETTE -> renderSettings()
+                    Screen.ABOUT -> renderSettings()
+                    Screen.FEEDBACK, Screen.FEEDBACK_SENT -> leaveFeedback()
                     Screen.SETTINGS -> leaveSettings()
                     Screen.GAME -> showHome()
                     Screen.HOME -> finish()
                 }
             }
         })
+        feedbackModel.delivery.observe(this) {
+            if (screen == Screen.FEEDBACK) renderFeedback()
+        }
         renderHome()
         store.importLegacy {
             if (isDestroyed || isFinishing) return@importLegacy
@@ -128,12 +138,18 @@ class SudokuActivity : AppCompatActivity() {
             records = store.records()
             restoring = false
             guideOrigin = Screen.entries.firstOrNull { it.name == state?.getString("guideOrigin") } ?: Screen.HOME
+            guideTab = GuideTab.entries.firstOrNull { it.name == state?.getString("guideTab") } ?: GuideTab.RULES
             guideReturnToIndex = state?.getBoolean("guideIndex", true) ?: true
             settingsOrigin = if (state?.getBoolean("settingsFromGame") == true) Screen.GAME else Screen.HOME
+            feedbackOrigin = if (state?.getBoolean("feedbackFromGame") == true) Screen.GAME else Screen.SETTINGS
             when (state?.getString("screen")) {
                 Screen.GAME.name -> if (game != null) showGame() else renderHome()
                 Screen.GUIDE.name -> renderGuide()
                 Screen.SETTINGS.name -> renderSettings()
+                Screen.PALETTE.name -> renderPalette()
+                Screen.ABOUT.name -> renderAbout()
+                Screen.FEEDBACK.name -> renderFeedback()
+                Screen.FEEDBACK_SENT.name -> renderFeedbackSent()
                 Screen.LESSON.name -> {
                     val savedLesson = Technique.entries.firstOrNull { it.name == state.getString("lesson") }
                     if (savedLesson == null) renderGuide() else renderLesson(savedLesson)
@@ -146,9 +162,11 @@ class SudokuActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("screen", screen.name)
         outState.putString("guideOrigin", guideOrigin.name)
+        outState.putString("guideTab", guideTab.name)
         outState.putBoolean("guideIndex", guideReturnToIndex)
         outState.putString("lesson", lesson?.name)
         outState.putBoolean("settingsFromGame", settingsOrigin == Screen.GAME)
+        outState.putBoolean("feedbackFromGame", feedbackOrigin == Screen.GAME)
         saveGame()
         super.onSaveInstanceState(outState)
     }
@@ -209,6 +227,10 @@ class SudokuActivity : AppCompatActivity() {
             Screen.GUIDE -> renderGuide()
             Screen.LESSON -> lesson?.let(::renderLesson)
             Screen.SETTINGS -> renderSettings()
+            Screen.PALETTE -> renderPalette()
+            Screen.ABOUT -> renderAbout()
+            Screen.FEEDBACK -> renderFeedback()
+            Screen.FEEDBACK_SENT -> renderFeedbackSent()
         }
     }
 
@@ -268,23 +290,14 @@ class SudokuActivity : AppCompatActivity() {
         root.setBackgroundColor(ui.palette.page)
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val system = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            view.setPadding(system.left, system.top, system.right, system.bottom)
+            val bottom = if (screen == Screen.FEEDBACK) maxOf(system.bottom, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom)
+                else system.bottom
+            view.setPadding(system.left, system.top, system.right, bottom)
             onHorizontalInsets(system.left + system.right)
             insets
         }
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
-    }
-
-    private fun title(page: LinearLayout, text: String, action: String? = null, go: (() -> Unit)? = null) {
-        val row = ui.row()
-        if (action != null && go != null) {
-            row.addView(ui.button(action, onClick = go), LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
-        }
-        row.addView(ui.heading(text, 27), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply {
-            marginStart = if (action == null) ui.dp(4) else ui.dp(12)
-        })
-        ui.add(page, row)
     }
 
     private fun showHome() {
@@ -300,7 +313,10 @@ class SudokuActivity : AppCompatActivity() {
         board = null
         val page = page()
         val busy = restoring || generationInProgress
-        val banner = ui.row().apply { setPadding(ui.dp(8), 0, ui.dp(4), 0) }
+        val banner = ui.row().apply {
+            minimumHeight = ui.dp(45)
+            setPadding(ui.dp(8), 0, ui.dp(4), 0)
+        }
         val logo = ImageView(this).apply {
             setImageDrawable(ui.icon(R.drawable.ic_auto_notes, 34))
             imageTintList = ColorStateList.valueOf(ui.palette.accentInk)
@@ -310,8 +326,6 @@ class SudokuActivity : AppCompatActivity() {
         banner.addView(ui.heading("Sudoku", 29), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply {
             marginStart = ui.dp(12)
         })
-        if (!busy) banner.addView(ui.iconButton("Settings", R.drawable.ic_settings, quiet = true, onClick = ::openSettings),
-            LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
         ui.add(page, banner)
         page.addView(HomeWaves(this, ui.palette), LinearLayout.LayoutParams(MATCH_PARENT, ui.dp(36)))
         if (busy) {
@@ -348,9 +362,8 @@ class SudokuActivity : AppCompatActivity() {
         ui.add(page, homeStats(), 18)
 
         val resources = ui.row()
-        ui.equal(resources, ui.button("How to play") { openGuide() })
-        ui.equal(resources, ui.button("Send feedback", onClick = ::feedback), 6)
-        if (saved != null) ui.equal(resources, ui.button("Discard", onClick = ::discardSavedGame), 6)
+        ui.equal(resources, ui.dashboardButton("How to Play", R.drawable.ic_guide) { openGuide() })
+        ui.equal(resources, ui.dashboardButton("Settings", R.drawable.ic_settings, onClick = ::openSettings), 8)
         ui.add(page, resources, 12)
     }
 
@@ -379,19 +392,6 @@ class SudokuActivity : AppCompatActivity() {
         isFocusable = true
         contentDescription = "Continue Puzzle, $details"
         setOnClickListener { showGame() }
-    }
-
-    private fun discardSavedGame() {
-        AlertDialog.Builder(this)
-            .setTitle("Discard your saved game?")
-            .setMessage("Your entries and notes for this puzzle will be removed.")
-            .setPositiveButton("Discard") { _, _ ->
-                store.discard()
-                game = null
-                renderHome()
-            }
-            .setNegativeButton("Cancel", null)
-            .showThemed()
     }
 
     private fun difficultyBars(difficulty: Difficulty, size: Int) = DifficultyBars(difficulty, ui.palette.dark).apply {
@@ -697,7 +697,7 @@ class SudokuActivity : AppCompatActivity() {
             put("Settings", ::openSettings)
             put("Home", ::showHome)
             put("New game", ::chooseDifficulty)
-            put("Send feedback", ::feedback)
+            put("Send feedback", ::openFeedback)
         }
         AlertDialog.Builder(this)
             .setTitle("Game menu")
@@ -752,32 +752,38 @@ class SudokuActivity : AppCompatActivity() {
 
     private fun renderSettings() {
         screen = Screen.SETTINGS
-        val page = page()
-        title(page, "Settings", "Back", ::leaveSettings)
+        settings.settings(page(), appearance, ::leaveSettings,
+            setMode = { changeAppearance(appearance.copy(mode = it)) },
+            openPalette = ::renderPalette,
+            selectTimeout = ::chooseScreenTimeout,
+            openGuide = { openGuide() },
+            openFeedback = ::openFeedback,
+            openAbout = ::renderAbout,
+        )
+    }
 
-        val modeCard = ui.card()
-        ui.add(modeCard, ui.heading("Appearance", 20))
-        ui.add(modeCard, ui.choices(AppearanceMode.entries, appearance.mode, AppearanceMode::label, horizontal = true) {
-            changeAppearance(appearance.copy(mode = it))
-        }, 4)
-        ui.add(modeCard, ui.text("System follows Android’s light or dark setting.", 14, ui.palette.muted), 4)
-        ui.add(page, modeCard, 16)
+    private fun renderPalette() {
+        screen = Screen.PALETTE
+        settings.palette(page(), appearance.theme, ::renderSettings) { changeAppearance(appearance.copy(theme = it)) }
+    }
 
-        val themeCard = ui.card()
-        ui.add(themeCard, ui.heading("Theme", 20))
-        ui.add(themeCard, ui.choices(GameTheme.entries, appearance.theme, GameTheme::label) {
-            changeAppearance(appearance.copy(theme = it))
-        }, 4)
-        ui.add(page, themeCard, 12)
+    private fun renderAbout() {
+        screen = Screen.ABOUT
+        settings.about(page(), ::renderSettings) {
+            startActivity(Intent(this, OssLicensesMenuActivity::class.java))
+        }
+    }
 
-        val screenCard = ui.card()
-        ui.add(screenCard, ui.heading("Screen timeout during a game", 20))
-        ui.add(screenCard, ui.choices(ScreenTimeout.entries, appearance.screenTimeout, ScreenTimeout::label) {
-            appearance = appearance.copy(screenTimeout = it)
-            appearanceStore.save(appearance)
-        }, 4)
-        ui.add(screenCard, ui.text("After a timed option ends, Android handles dimming and sleep.", 14, ui.palette.muted), 4)
-        ui.add(page, screenCard, 12)
+    private fun chooseScreenTimeout() {
+        val options = ScreenTimeout.entries
+        AlertDialog.Builder(this)
+            .setTitle("Screen Timeout")
+            .setSingleChoiceItems(options.map(ScreenTimeout::label).toTypedArray(), options.indexOf(appearance.screenTimeout)) { dialog, index ->
+                dialog.dismiss()
+                changeAppearance(appearance.copy(screenTimeout = options[index]))
+            }
+            .setNegativeButton("Cancel", null)
+            .showThemed()
     }
 
     private fun changeAppearance(updated: AppearanceSettings) {
@@ -786,7 +792,7 @@ class SudokuActivity : AppCompatActivity() {
         appearance = updated
         appearanceStore.save(updated)
         delegate.localNightMode = updated.mode.nightMode
-        renderSettings()
+        if (screen == Screen.PALETTE) renderPalette() else renderSettings()
         val scroll = findViewById<ScrollView>(R.id.page_scroll)
         scroll.post { scroll.scrollTo(0, position) }
     }
@@ -798,6 +804,7 @@ class SudokuActivity : AppCompatActivity() {
     private fun openGuide(technique: Technique? = null) {
         guideOrigin = screen
         guideReturnToIndex = technique == null
+        guideTab = GuideTab.RULES
         if (screen == Screen.GAME) {
             cancelHint()
             game?.stop(now())
@@ -809,15 +816,24 @@ class SudokuActivity : AppCompatActivity() {
     private fun renderGuide() {
         screen = Screen.GUIDE
         val page = page()
-        title(page, "How to play", "Back", ::leaveGuide)
-        guide.index(page, ::renderLesson)
+        ui.add(page, ui.pageHeading("How to Play", ::leaveGuide))
+        ui.add(page, ui.segments(GuideTab.entries, guideTab, GuideTab::label) {
+            if (guideTab != it) {
+                guideTab = it
+                renderGuide()
+            }
+        }, 8)
+        when (guideTab) {
+            GuideTab.RULES -> guide.rules(page)
+            GuideTab.STRATEGIES -> guide.strategies(page, ::renderLesson)
+        }
     }
 
     private fun renderLesson(technique: Technique) {
         screen = Screen.LESSON
         lesson = technique
         val page = page()
-        title(page, technique.title, "Back", ::leaveLesson)
+        ui.add(page, ui.pageHeading(technique.title, ::leaveLesson))
         guide.lesson(page, technique)
     }
 
@@ -826,7 +842,11 @@ class SudokuActivity : AppCompatActivity() {
     }
 
     private fun leaveGuide() {
-        if (guideOrigin == Screen.GAME && game != null) showGame() else showHome()
+        when {
+            guideOrigin == Screen.GAME && game != null -> showGame()
+            guideOrigin == Screen.SETTINGS -> renderSettings()
+            else -> showHome()
+        }
     }
 
     private fun cancelHint() {
@@ -959,15 +979,42 @@ class SudokuActivity : AppCompatActivity() {
         }
     }
 
-    private fun feedback() {
-        val email = Uri.encode(BuildConfig.FEEDBACK_EMAIL, "@")
-        val subject = Uri.encode("Sudoku for Android feedback")
-        val draft = Uri.parse("mailto:$email?subject=$subject")
-        try {
-            startActivity(Intent(Intent.ACTION_SENDTO, draft))
-        } catch (_: ActivityNotFoundException) {
-            Toast.makeText(this, "Set up an email app to send feedback.", Toast.LENGTH_LONG).show()
+    private fun openFeedback() {
+        feedbackOrigin = screen
+        if (screen == Screen.GAME) {
+            cancelHint()
+            game?.stop(now())
+            saveGame()
         }
+        renderFeedback()
+    }
+
+    private fun renderFeedback() {
+        val delivery = feedbackModel.delivery.value ?: FeedbackDelivery.Ready
+        if (delivery == FeedbackDelivery.Sent) {
+            renderFeedbackSent()
+            return
+        }
+        screen = Screen.FEEDBACK
+        feedbackPage.form(page(), feedbackModel.draft, delivery, ::leaveFeedback,
+            keepDraft = { feedbackModel.draft = it },
+            submit = {
+                WindowCompat.getInsetsController(window, window.decorView).hide(WindowInsetsCompat.Type.ime())
+                feedbackModel.submit()
+            },
+        )
+    }
+
+    private fun renderFeedbackSent() {
+        screen = Screen.FEEDBACK_SENT
+        feedbackPage.sent(page(), ::leaveFeedback)
+    }
+
+    private fun leaveFeedback() {
+        val sent = screen == Screen.FEEDBACK_SENT
+        WindowCompat.getInsetsController(window, window.decorView).hide(WindowInsetsCompat.Type.ime())
+        if (feedbackOrigin == Screen.GAME && game != null) showGame() else renderSettings()
+        if (sent) feedbackModel.finish()
     }
 
     private fun message(title: String, content: String) {

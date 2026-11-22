@@ -12,15 +12,16 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.annotation.DrawableRes
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.widget.AppCompatButton
 import androidx.appcompat.widget.AppCompatImageButton
-import androidx.appcompat.widget.AppCompatRadioButton
 import androidx.core.view.ViewCompat
 import kotlin.math.roundToInt
 
@@ -67,6 +68,20 @@ internal class Ui(private val context: Context) {
         ViewCompat.setAccessibilityHeading(this, true)
     }
 
+    fun pageHeading(title: String, onBack: () -> Unit) = FrameLayout(context).apply {
+        setPadding(0, 0, 0, dp(3))
+        addView(heading(title, 23).apply { gravity = Gravity.CENTER },
+            FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.CENTER).apply {
+                leftMargin = dp(52)
+                rightMargin = dp(52)
+            })
+        val back = iconButton("Back", R.drawable.ic_back, quiet = true, onClick = onBack).apply {
+            background = dashboardPress(shape(palette.page, 8))
+        }
+        addView(back,
+            FrameLayout.LayoutParams(dp(48), dp(48), Gravity.START or Gravity.CENTER_VERTICAL))
+    }
+
     fun button(content: String, primary: Boolean = false, @DrawableRes icon: Int = 0, onClick: () -> Unit) =
         AppCompatButton(context).apply {
             this.text = content
@@ -98,6 +113,32 @@ internal class Ui(private val context: Context) {
             compoundDrawablePadding = dp(4)
             styleGameAction(this, shortcut = shortcut)
         }
+
+    fun dashboardButton(label: String, @DrawableRes icon: Int, onClick: () -> Unit) = row().apply {
+        gravity = Gravity.CENTER
+        minimumHeight = dp(48)
+        setPadding(dp(6), dp(4), dp(6), dp(4))
+        addView(ImageView(context).apply {
+            setImageDrawable(this@Ui.icon(icon, 23))
+            imageTintList = ColorStateList.valueOf(palette.accentInk)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(dp(23), dp(23)))
+        addView(text(label, 14, bold = true).apply {
+            gravity = Gravity.CENTER
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { leftMargin = dp(7) })
+        background = dashboardPress(dashboardSurface(12))
+        elevation = dp(1).toFloat()
+        isFocusable = true
+        contentDescription = label
+        accessibilityDelegate = object : View.AccessibilityDelegate() {
+            override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                super.onInitializeAccessibilityNodeInfo(host, info)
+                info.className = "android.widget.Button"
+            }
+        }
+        setOnClickListener { onClick() }
+    }
 
     fun icon(@DrawableRes resource: Int, size: Int) = AppCompatResources.getDrawable(context, resource)?.mutate()?.apply {
         setBounds(0, 0, dp(size), dp(size))
@@ -161,28 +202,31 @@ internal class Ui(private val context: Context) {
         null,
     )
 
-    fun <T> choices(
+    fun <T> segments(
         options: List<T>,
         selected: T,
         label: (T) -> String,
-        horizontal: Boolean = false,
+        enabled: Boolean = true,
         onChange: (T) -> Unit,
-    ) = RadioGroup(context).apply {
-        orientation = if (horizontal) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-        for (option in options) {
-            val radio = AppCompatRadioButton(context).apply {
-                id = View.generateViewId()
-                text = label(option)
-                minHeight = dp(48)
-                setTextColor(palette.ink)
-                buttonTintList = ColorStateList(
-                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                    intArrayOf(palette.accentInk, palette.muted),
-                )
-                setOnClickListener { onChange(option) }
-            }
-            addView(radio, RadioGroup.LayoutParams(if (horizontal) 0 else MATCH_PARENT, WRAP_CONTENT, if (horizontal) 1f else 0f))
-            if (selected == option) check(radio.id)
+    ) = row().apply {
+        background = shape(palette.toolbarSurface, 13, palette.border)
+        setPadding(dp(1), dp(1), dp(1), dp(1))
+        fun styleSegment(button: AppCompatButton, active: Boolean) {
+            button.isSelected = active
+            styleButton(button, if (active) palette.accent else palette.toolbarSurface,
+                if (active) palette.onAccent else palette.ink, border = 0, radius = 12)
+        }
+        for ((index, option) in options.withIndex()) {
+            equal(this, button(label(option)) {
+                for (i in options.indices) styleSegment(getChildAt(i) as AppCompatButton, i == index)
+                onChange(option)
+            }.apply {
+                textSize = 13f
+                letterSpacing = 0f
+                setPadding(dp(3), 0, dp(3), 0)
+                isEnabled = enabled
+                styleSegment(this, option == selected)
+            })
         }
     }
 
