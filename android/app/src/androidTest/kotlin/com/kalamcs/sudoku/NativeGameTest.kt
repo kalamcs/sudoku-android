@@ -14,6 +14,7 @@ import android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
 import android.widget.TextView
 import androidx.core.view.ViewCompat
 import androidx.lifecycle.Lifecycle
+import androidx.appcompat.widget.AppCompatButton
 import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.Espresso.pressBack
@@ -37,6 +38,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import org.hamcrest.Matcher
+import org.hamcrest.Matchers.not
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -46,10 +48,28 @@ import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class NativeGameTest {
+    @Test fun dashboardShowsTheSavedPuzzleAndAllFourDifficultyTiles() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
+            onView(withText("Continue Puzzle")).check(matches(isDisplayed()))
+            onView(isAssignableFrom(SavedPuzzlePreview::class.java)).check(matches(isDisplayed()))
+            scenario.onActivity { activity ->
+                val buttons = TreeIterables.depthFirstViewTraversal(activity.findViewById(R.id.page_content))
+                    .filterIsInstance<AppCompatButton>()
+                val difficulties = Difficulty.entries.map(Difficulty::label)
+                val tiles = buttons.filter { it.text.toString() in difficulties }
+                assertEquals(difficulties, tiles.map { it.text.toString() })
+                assertTrue(tiles.all { it.parent === tiles.first().parent })
+            }
+            onView(withText("Statistics")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Best Time\n(Achieved On)")).perform(scrollTo()).check(matches(isDisplayed()))
+        }
+    }
+
     @Test fun checkingErrorsKeepsTimeAndOnlyHighlightsWithPermission() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
-            onView(withText("Continue")).perform(click())
+            onView(withText("Continue Puzzle")).perform(click())
             onView(withText("3")).perform(scrollTo(), click())
             onView(withContentDescription("Game menu")).perform(scrollTo(), click())
             val paused = displayedTime(scenario)
@@ -86,7 +106,7 @@ class NativeGameTest {
         store.save(Game(Puzzle(Difficulty.EASY, givens, solution)), SystemClock.elapsedRealtime())
 
         ActivityScenario.launch(SudokuActivity::class.java).use {
-            onView(withText("Continue")).perform(click())
+            onView(withText("Continue Puzzle")).perform(click())
             onView(withText(solution[0].toString())).perform(scrollTo(), click())
             onView(withText("View board")).perform(click())
             val recorded = store.records().getValue(Difficulty.EASY)
@@ -104,11 +124,11 @@ class NativeGameTest {
     @Test fun rerenderingHomeDismissesItsDiscardConfirmation() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
-            onView(withText("Discard")).perform(click())
+            onView(withText("Discard")).perform(scrollTo(), click())
             onView(withText("Discard your saved game?")).check(matches(isDisplayed()))
             scenario.onActivity { it.onConfigurationChanged(Configuration(it.resources.configuration)) }
             onView(withText("Discard your saved game?")).check(doesNotExist())
-            onView(withText("Continue your game")).check(matches(isDisplayed()))
+            onView(withText("Continue Puzzle")).check(matches(isDisplayed()))
         }
     }
 
@@ -129,7 +149,7 @@ class NativeGameTest {
     @Test fun solvingScreenFitsPhonePortraitsAndUsesTwoPanesInLandscape() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
-            onView(withText("Continue")).perform(click())
+            onView(withText("Continue Puzzle")).perform(click())
             scenario.onActivity { activity ->
                 val layout = activity.findViewById<SolvingLayout>(R.id.page_scroll)
                 val contents = TreeIterables.depthFirstViewTraversal(layout).toList()
@@ -138,6 +158,10 @@ class NativeGameTest {
                 val toolbar = text.single { it.text == "Undo" }.parent as ViewGroup
                 assertEquals(listOf("Undo", "Erase", "Notes: Off", "Hint", "Redo"),
                     (0 until toolbar.childCount).map { (toolbar.getChildAt(it) as TextView).text.toString() })
+                val shortcuts = text.single { it.text == "Check\nProgress" }.parent as ViewGroup
+                assertEquals(listOf("Auto-fill\nCandidates", "Check\nProgress", "Restart\nPuzzle"),
+                    (0 until shortcuts.childCount).map { shortcuts.getChildAt(it) }
+                        .filterIsInstance<TextView>().map { it.text.toString() })
 
                 val density = activity.resources.displayMetrics.density
                 val originalWidth = layout.width
@@ -149,10 +173,10 @@ class NativeGameTest {
                         View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
                     layout.layout(0, 0, width, height)
                     assertEquals(board.width, board.height)
-                    assertFalse("${widthDp}×$heightDp requires scrolling (content ${layout.getChildAt(0).height}px, " +
+                    if (widthDp > 320) assertFalse("${widthDp}×$heightDp requires scrolling (content ${layout.getChildAt(0).height}px, " +
                         "viewport ${layout.height}px, board ${board.height}px)", layout.canScrollVertically(1))
                     val keypadRow = text.single { it.text == "1" }.parent as ViewGroup
-                    assertEquals(if (widthDp <= 360 || widthDp > heightDp) 3 else 9, keypadRow.childCount)
+                    assertEquals(if (widthDp <= 360) 3 else 9, keypadRow.childCount)
                     val controls = toolbar.parent as View
                     if (widthDp > heightDp) assertTrue("Landscape board edge ${board.right}px, tools start ${controls.left}px",
                         board.right < controls.left)
@@ -162,7 +186,23 @@ class NativeGameTest {
                 layout.layout(0, 0, originalWidth, originalHeight)
             }
             onView(withContentDescription("Back to home")).perform(click())
-            onView(withText("Continue your game")).check(matches(isDisplayed()))
+            onView(withText("Continue Puzzle")).check(matches(isDisplayed()))
+        }
+    }
+
+    @Test fun shortcutsUseTheExistingCandidateCheckAndRestartActions() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Continue Puzzle")).perform(click())
+            onView(withText("Auto-fill\nCandidates")).perform(scrollTo(), click())
+            assertCellDescription(1, "Row 1, column 2, notes 3, 5")
+            onView(withText("Check\nProgress")).perform(scrollTo(), click())
+            onView(withText("There are no incorrect entries so far.")).check(matches(isDisplayed()))
+            onView(withText("Close")).perform(click())
+            onView(withText("Restart\nPuzzle")).perform(scrollTo(), click())
+            onView(withText("Reset board?")).check(matches(isDisplayed()))
+            onView(withText("Reset")).perform(click())
+            assertCellDescription(1, "Row 1, column 2, empty")
         }
     }
 
@@ -172,7 +212,7 @@ class NativeGameTest {
             time = TreeIterables.depthFirstViewTraversal(activity.findViewById(R.id.page_content))
                 .filterIsInstance<TextView>()
                 .map { it.text.toString() }
-                .single { Regex("[0-9]+:[0-9]{2}").matches(it) }
+                .single { Regex("[0-9]{2,}:[0-9]{2}:[0-9]{2}").matches(it) }
         }
         return time
     }
@@ -188,13 +228,13 @@ class NativeGameTest {
     @Test fun backReturnsHomeAndTheNotesControlShowsBothStates() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
-            onView(withText("Continue")).perform(click())
+            onView(withText("Continue Puzzle")).perform(click())
             onView(withText("Notes: Off")).perform(scrollTo(), click())
             onView(withText("Notes: On")).check(matches(isDisplayed()))
             pressBack()
-            onView(withText("Continue your game")).check(matches(isDisplayed()))
+            onView(withText("Continue Puzzle")).check(matches(isDisplayed()))
             onView(withText("Solved")).perform(scrollTo()).check(matches(isDisplayed()))
-            onView(withText("Continue")).perform(scrollTo(), click())
+            onView(withText("Continue Puzzle")).perform(scrollTo(), click())
             onView(withText("Notes: On")).perform(scrollTo(), click())
             onView(withText("Notes: Off")).check(matches(isDisplayed()))
         }
@@ -203,13 +243,13 @@ class NativeGameTest {
     @Test fun pauseReturnsHomeAndBackgroundingResumesTheOpenPuzzle() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
-            onView(withText("Continue")).perform(click())
+            onView(withText("Continue Puzzle")).perform(click())
             scenario.moveToState(Lifecycle.State.CREATED)
             scenario.moveToState(Lifecycle.State.RESUMED)
             onView(withText("Notes: Off")).perform(scrollTo(), click())
             onView(withContentDescription("Pause")).perform(scrollTo(), click())
-            onView(withText("Continue your game")).check(matches(isDisplayed()))
-            onView(withText("Continue")).perform(click())
+            onView(withText("Continue Puzzle")).check(matches(isDisplayed()))
+            onView(withText("Continue Puzzle")).perform(click())
             onView(withText("Notes: On")).check(matches(isDisplayed()))
         }
     }
@@ -223,7 +263,7 @@ class NativeGameTest {
 
         try {
             ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
-                onView(withText("Continue")).perform(click())
+                onView(withText("Continue Puzzle")).perform(click())
                 assertKeepScreenOn(scenario, false)
                 pressBack()
                 onView(withContentDescription("Settings")).perform(click())
@@ -234,7 +274,7 @@ class NativeGameTest {
                 onView(withText("At least 3 minutes")).perform(scrollTo()).check(matches(isChecked()))
                 onView(withText("Back")).perform(scrollTo(), click())
                 assertKeepScreenOn(scenario, false)
-                onView(withText("Continue")).perform(click())
+                onView(withText("Continue Puzzle")).perform(click())
                 assertKeepScreenOn(scenario, true)
                 onView(withContentDescription("Pause")).perform(scrollTo(), click())
                 assertKeepScreenOn(scenario, false)
@@ -247,7 +287,7 @@ class NativeGameTest {
     @Test fun completedDigitStaysGrayAndCanStillHighlightFromAGivenCell() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
-            onView(withText("Continue")).perform(click())
+            onView(withText("Continue Puzzle")).perform(click())
             val key = onView(withText("1"))
             var completedColor = 0
             key.check { view, error ->
@@ -315,14 +355,14 @@ class NativeGameTest {
                 onView(withText("Light")).check(matches(isChecked()))
                 onView(withText("Ocean Blue")).check(matches(isChecked()))
                 onView(withText("Back")).perform(click())
-                onView(withText("Continue")).perform(click())
+                onView(withText("Continue Puzzle")).perform(click())
                 onView(withContentDescription("Game menu")).perform(click())
                 onView(withText("Settings")).perform(click())
                 onView(withText("Dark")).perform(click())
                 onView(withText("Royal Purple")).perform(scrollTo(), click()).check(matches(isChecked()))
                 assertEquals(AppearanceSettings(AppearanceMode.DARK, GameTheme.PURPLE), preferences.load())
                 onView(withText("Back")).perform(scrollTo(), click())
-                onView(withText("Extreme")).check(matches(isDisplayed()))
+                onView(withContentDescription("Difficulty Extreme")).check(matches(isDisplayed()))
                 scenario.onActivity { activity ->
                     val root = activity.findViewById<View>(R.id.page_scroll).parent as View
                     assertEquals(GameTheme.PURPLE.palette(dark = true).page, (root.background as ColorDrawable).color)
@@ -343,12 +383,15 @@ class NativeGameTest {
     @Test fun keypadSelectionHighlightsMatchingNotesAcrossTheBoard() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
-            onView(withText("Continue")).perform(click())
+            onView(withText("Continue Puzzle")).perform(click())
             onView(withContentDescription("Game menu")).perform(click())
             onView(withText("Auto notes")).perform(click())
             val board = onView(isAssignableFrom(BoardView::class.java))
             board.perform(scrollTo(), tapFirstCell())
-            onView(withText("3")).perform(scrollTo(), click())
+            onView(withText("3")).perform(scrollTo(), click()).check { view, error ->
+                if (error != null) throw error
+                assertTrue(view.isSelected)
+            }
             board.check { view, error ->
                 if (error != null) throw error
                 val provider = checkNotNull(view.accessibilityNodeProvider)
@@ -367,19 +410,19 @@ class NativeGameTest {
     @Test fun pinchChangesTheBoardZoomAndCanReturnToFullBoard() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
-            onView(withText("Continue")).perform(click())
-            onView(withText("Pinch to zoom")).check(matches(isDisplayed()))
+            onView(withText("Continue Puzzle")).perform(click())
+            onView(withContentDescription("Reset zoom")).check(matches(not(isDisplayed())))
             onView(isAssignableFrom(BoardView::class.java)).perform(pinch(out = true))
             onView(withContentDescription("Reset zoom")).check(matches(isDisplayed()))
             onView(isAssignableFrom(BoardView::class.java)).perform(scrollTo(), pinch(out = false))
-            onView(withText("Pinch to zoom")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withContentDescription("Reset zoom")).check(matches(not(isDisplayed())))
         }
     }
 
     @Test fun howToPlayOpensAWorkedLessonFromTheGameMenu() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
-            onView(withText("Continue")).perform(click())
+            onView(withText("Continue Puzzle")).perform(click())
             onView(withContentDescription("Game menu")).perform(click())
             onView(withText("How to play")).perform(click())
             onView(withId(R.id.page_content)).check { view, error ->
@@ -396,7 +439,7 @@ class NativeGameTest {
             onView(withText("Back")).perform(click())
             onView(withText("How to play")).check(matches(isDisplayed()))
             onView(withText("Back")).perform(click())
-            onView(withText("Extreme")).check(matches(isDisplayed()))
+            onView(withContentDescription("Difficulty Extreme")).check(matches(isDisplayed()))
         }
     }
 

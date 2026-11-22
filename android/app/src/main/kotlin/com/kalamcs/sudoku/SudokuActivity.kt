@@ -23,11 +23,10 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
-import android.widget.TableLayout
-import android.widget.TableRow
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -85,6 +84,8 @@ class SudokuActivity : AppCompatActivity() {
         val erase: AppCompatButton,
         val pause: View,
         val hint: AppCompatButton,
+        val autoNotes: AppCompatButton,
+        val restart: AppCompatButton,
         val digits: List<AppCompatButton>,
     )
 
@@ -213,6 +214,8 @@ class SudokuActivity : AppCompatActivity() {
 
     private fun now() = SystemClock.elapsedRealtime()
     private fun formatTime(seconds: Long) = String.format(Locale.ROOT, "%02d:%02d", seconds / 60, seconds % 60)
+    private fun formatGameTime(seconds: Long) =
+        String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3_600, seconds / 60 % 60, seconds % 60)
     private fun saveGame() {
         val active = game ?: return
         lastSaveTime = now()
@@ -273,7 +276,7 @@ class SudokuActivity : AppCompatActivity() {
         ViewCompat.requestApplyInsets(root)
     }
 
-    private fun title(page: LinearLayout, text: String, action: String? = null, go: (() -> Unit)? = null, trailing: View? = null) {
+    private fun title(page: LinearLayout, text: String, action: String? = null, go: (() -> Unit)? = null) {
         val row = ui.row()
         if (action != null && go != null) {
             row.addView(ui.button(action, onClick = go), LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
@@ -281,7 +284,6 @@ class SudokuActivity : AppCompatActivity() {
         row.addView(ui.heading(text, 27), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply {
             marginStart = if (action == null) ui.dp(4) else ui.dp(12)
         })
-        if (trailing != null) row.addView(trailing, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
         ui.add(page, row)
     }
 
@@ -298,8 +300,20 @@ class SudokuActivity : AppCompatActivity() {
         board = null
         val page = page()
         val busy = restoring || generationInProgress
-        val settingsButton = if (busy) null else ui.iconButton("Settings", R.drawable.ic_settings, onClick = ::openSettings)
-        title(page, "Sudoku", trailing = settingsButton)
+        val banner = ui.row().apply { setPadding(ui.dp(8), 0, ui.dp(4), 0) }
+        val logo = ImageView(this).apply {
+            setImageDrawable(ui.icon(R.drawable.ic_auto_notes, 34))
+            imageTintList = ColorStateList.valueOf(ui.palette.accentInk)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        banner.addView(logo, LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)))
+        banner.addView(ui.heading("Sudoku", 29), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply {
+            marginStart = ui.dp(12)
+        })
+        if (!busy) banner.addView(ui.iconButton("Settings", R.drawable.ic_settings, quiet = true, onClick = ::openSettings),
+            LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
+        ui.add(page, banner)
+        page.addView(HomeWaves(this, ui.palette), LinearLayout.LayoutParams(MATCH_PARENT, ui.dp(36)))
         if (busy) {
             val loading = ui.row()
             loading.addView(ProgressBar(this).apply {
@@ -313,95 +327,128 @@ class SudokuActivity : AppCompatActivity() {
         }
 
         val saved = game?.takeUnless { it.finished }
-        if (saved != null) {
-            val card = ui.card()
-            ui.add(card, ui.heading("Continue your game", 20))
-            ui.add(card, ui.text("${saved.puzzle.difficulty.label} · ${formatTime(saved.elapsed(now()) / 1000)}", 15, ui.palette.muted), 4)
-            val row = ui.row()
-            ui.equal(row, ui.button("Continue", true) { showGame() })
-            ui.equal(row, ui.button("Discard") {
-                AlertDialog.Builder(this)
-                    .setTitle("Discard your saved game?")
-                    .setMessage("Your entries and notes for this puzzle will be removed.")
-                    .setPositiveButton("Discard") { _, _ ->
-                        store.discard()
-                        game = null
-                        renderHome()
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .showThemed()
-            }, 8)
-            ui.add(card, row, 12)
-            ui.add(page, card, 16)
-        }
+        if (saved != null) ui.add(page, continueCard(saved), 4)
 
-        val start = ui.card()
-        ui.add(start, ui.heading("New game", 20))
-        for (pair in Difficulty.entries.chunked(2)) {
-            val row = ui.row()
-            pair.forEachIndexed { i, difficulty ->
-                ui.equal(row, ui.button(difficulty.label) { askForNew(difficulty) }, if (i == 0) 0 else 8)
+        ui.add(page, ui.heading("Start New Puzzle", 20), 19)
+        val choices = ui.row()
+        Difficulty.entries.forEachIndexed { index, difficulty ->
+            val button = ui.button(difficulty.label) { askForNew(difficulty) }.apply {
+                minimumHeight = ui.dp(68)
+                setPadding(ui.dp(2), ui.dp(9), ui.dp(2), ui.dp(8))
+                letterSpacing = 0f
+                setCompoundDrawablesRelative(null, difficultyBars(difficulty, 25), null, null)
+                compoundDrawableTintList = null
+                compoundDrawablePadding = ui.dp(5)
+                background = ui.dashboardPress(ui.dashboardSurface(13))
+                elevation = ui.dp(2).toFloat()
             }
-            ui.add(start, row, 8)
+            ui.equal(choices, button, if (index == 0) 0 else 7)
         }
-        ui.add(page, start, 12)
+        ui.add(page, choices, 11)
+        ui.add(page, homeStats(), 18)
 
         val resources = ui.row()
-        ui.equal(resources, ui.button("How to play", icon = R.drawable.ic_guide) { openGuide() })
-        ui.equal(resources, ui.button("Send feedback", icon = R.drawable.ic_feedback) { feedback() }, 8)
+        ui.equal(resources, ui.button("How to play") { openGuide() })
+        ui.equal(resources, ui.button("Send feedback", onClick = ::feedback), 6)
+        if (saved != null) ui.equal(resources, ui.button("Discard", onClick = ::discardSavedGame), 6)
         ui.add(page, resources, 12)
+    }
 
-        ui.add(page, homeStats(), 12)
+    private fun continueCard(saved: Game): View = ui.row().apply {
+        val details = "${saved.puzzle.difficulty.label} · ${formatTime(saved.elapsed(now()) / 1000)}"
+        background = ui.dashboardPress(ui.dashboardSurface(16, .11f))
+        elevation = ui.dp(2).toFloat()
+        setPadding(ui.dp(13), ui.dp(12), ui.dp(13), ui.dp(12))
+        addView(SavedPuzzlePreview(this@SudokuActivity, ui.palette, saved), LinearLayout.LayoutParams(ui.dp(72), ui.dp(72)))
+        addView(View(this@SudokuActivity).apply { setBackgroundColor(ui.palette.border) },
+            LinearLayout.LayoutParams(ui.dp(1), ui.dp(64)).apply {
+                leftMargin = ui.dp(12)
+                rightMargin = ui.dp(12)
+            })
+        val description = ui.column()
+        ui.add(description, ui.heading("Continue Puzzle", 19))
+        ui.add(description, ui.text(details, 15, ui.palette.muted), 4)
+        addView(description, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        addView(ImageView(this@SudokuActivity).apply {
+            setImageDrawable(ui.icon(R.drawable.ic_chevron_right, 19))
+            imageTintList = ColorStateList.valueOf(ui.palette.ink)
+            background = ui.shape(ui.palette.toolbarSurface, 20, ui.palette.border)
+            setPadding(ui.dp(7), ui.dp(7), ui.dp(7), ui.dp(7))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(ui.dp(32), ui.dp(32)).apply { leftMargin = ui.dp(5) })
+        isFocusable = true
+        contentDescription = "Continue Puzzle, $details"
+        setOnClickListener { showGame() }
+    }
+
+    private fun discardSavedGame() {
+        AlertDialog.Builder(this)
+            .setTitle("Discard your saved game?")
+            .setMessage("Your entries and notes for this puzzle will be removed.")
+            .setPositiveButton("Discard") { _, _ ->
+                store.discard()
+                game = null
+                renderHome()
+            }
+            .setNegativeButton("Cancel", null)
+            .showThemed()
+    }
+
+    private fun difficultyBars(difficulty: Difficulty, size: Int) = DifficultyBars(difficulty, ui.palette.dark).apply {
+        setBounds(0, 0, ui.dp(size), ui.dp(size))
     }
 
     private fun homeStats(): LinearLayout {
-        val stats = ui.card(12)
-        ui.add(stats, ui.heading("Your stats", 20))
-        val table = TableLayout(this).apply {
-            isShrinkAllColumns = true
-            setColumnStretchable(2, true)
-            setColumnStretchable(3, true)
+        val stats = ui.card(8).apply {
+            background = ui.dashboardSurface(16)
+            elevation = ui.dp(2).toFloat()
         }
+        ui.add(stats, ui.heading("Statistics", 20).apply { setPadding(ui.dp(4), 0, 0, 0) })
+        val widths = listOf(1.13f, .68f, 1f, .94f)
 
         fun addRow(cells: List<TextView>, header: Boolean = false) {
-            val row = TableRow(this).apply { gravity = Gravity.CENTER_VERTICAL }
-            if (header) row.setBackgroundColor(ui.palette.relatedCell)
+            val row = ui.row().apply {
+                setPadding(ui.dp(5), ui.dp(6), ui.dp(5), ui.dp(6))
+                if (!header) {
+                    minimumHeight = ui.dp(44)
+                    background = ui.dashboardSurface(13, .035f)
+                }
+            }
             cells.forEachIndexed { index, cell ->
                 cell.gravity = if (index == 0) Gravity.START or Gravity.CENTER_VERTICAL else Gravity.CENTER
-                cell.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8))
+                cell.setPadding(ui.dp(2), 0, ui.dp(2), 0)
                 if (index > 0 && !header) cell.fontFeatureSettings = "'tnum'"
-                row.addView(cell, TableRow.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+                row.addView(cell, LinearLayout.LayoutParams(0, WRAP_CONTENT, widths[index]))
             }
-            table.addView(row)
+            ui.add(stats, row, if (header) 8 else 4)
         }
 
-        addRow(listOf("Level", "Solved", "Best", "Avg.").map { ui.text(it, 13, bold = true) }, header = true)
-        for ((index, difficulty) in Difficulty.entries.withIndex()) {
-            if (index > 0) table.addView(View(this).apply {
-                setBackgroundColor(ui.palette.border)
-            }, TableLayout.LayoutParams(MATCH_PARENT, ui.dp(1)))
+        addRow(listOf("Difficulty", "Solved", "Best Time\n(Achieved On)", "Average Time").map { ui.text(it, 11) }, header = true)
+        for (difficulty in Difficulty.entries) {
             val record = records[difficulty] ?: Record()
             val best = record.best?.let(::formatTime) ?: "—"
             val average = record.average?.let(::formatTime) ?: "—"
             val bestDate = record.bestAt?.takeIf { record.best != null }?.let {
-                DateFormat.getDateInstance(DateFormat.SHORT).format(Date(it))
+                DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it))
             }
-            val bestCell = ui.text(best, 14).apply {
+            val bestCell = ui.text(best, 15, bold = true).apply {
                 if (bestDate != null) {
                     text = SpannableString("$best\n$bestDate").apply {
-                        setSpan(RelativeSizeSpan(.85f), best.length + 1, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        setSpan(RelativeSizeSpan(.74f), best.length + 1, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         setSpan(ForegroundColorSpan(ui.palette.muted), best.length + 1, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     }
                 }
             }
             addRow(listOf(
-                ui.text(difficulty.label, 14, bold = true),
-                ui.text(record.wins.toString(), 14),
+                ui.text(difficulty.label, 13, bold = true).apply {
+                    setCompoundDrawablesRelative(difficultyBars(difficulty, 17), null, null, null)
+                    compoundDrawablePadding = ui.dp(3)
+                },
+                ui.text(record.wins.toString(), 15, bold = true),
                 bestCell,
-                ui.text(average, 14),
+                ui.text(average, 15, bold = true),
             ))
         }
-        ui.add(stats, table, 8)
         return stats
     }
 
@@ -457,44 +504,55 @@ class SudokuActivity : AppCompatActivity() {
         }
         board = view
 
-        val header = ui.row()
+        val header = FrameLayout(this).apply { setBackgroundColor(ui.palette.toolbarSurface) }
         val back = ui.iconButton("Back to home", R.drawable.ic_back, quiet = true, onClick = ::showHome)
         val resetZoom = ui.iconButton("Reset zoom", R.drawable.ic_reset_zoom, quiet = true, onClick = view::resetZoom)
             .apply { visibility = View.GONE }
         val pause = ui.iconButton("Pause", R.drawable.ic_pause, quiet = true, onClick = ::showHome)
-        val menu = ui.iconButton("Game menu", R.drawable.ic_menu, quiet = true, onClick = ::menu)
-        fun addNavigation(button: View) = header.addView(button, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
-        addNavigation(back)
+        val menu = ui.iconButton("Game menu", R.drawable.ic_settings, quiet = true, onClick = ::menu)
+        fun navigation(vararg buttons: View) = ui.row().apply {
+            for (button in buttons) addView(button, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
+        }
         header.addView(ui.heading("Sudoku", 22).apply {
             gravity = Gravity.CENTER
             setSingleLine()
             ellipsize = TextUtils.TruncateAt.END
-        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        addNavigation(resetZoom)
-        addNavigation(pause)
-        addNavigation(menu)
-
-        val status = ui.row().apply { setPadding(ui.dp(4), 0, ui.dp(4), 0) }
-        status.addView(ui.text(active.puzzle.difficulty.label, 14, ui.palette.accentInk, bold = true).apply {
-            contentDescription = "Difficulty ${active.puzzle.difficulty.label}"
+        }, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.CENTER).apply {
+            leftMargin = ui.dp(96)
+            rightMargin = ui.dp(96)
         })
-        val gesture = ui.text("Pinch to zoom", 12, ui.palette.muted).apply {
-            gravity = Gravity.CENTER
-            setSingleLine()
-            ellipsize = TextUtils.TruncateAt.END
-            setPadding(ui.dp(4), 0, ui.dp(4), 0)
-        }
-        status.addView(gesture, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        val time = ui.text(formatTime(active.elapsed(now()) / 1000), 15, bold = true).apply {
-            fontFeatureSettings = "'tnum'"
-        }
-        status.addView(time)
-        view.onZoomChanged = { zoomed ->
-            resetZoom.visibility = if (zoomed) View.VISIBLE else View.GONE
-            gesture.text = if (zoomed) "Drag to pan" else "Pinch to zoom"
-        }
+        header.addView(navigation(back, resetZoom), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.START))
+        header.addView(navigation(pause, menu), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.END))
+        view.onZoomChanged = { zoomed -> resetZoom.visibility = if (zoomed) View.VISIBLE else View.GONE }
 
-        val toolbar = ui.row().apply { background = ui.shape(ui.palette.toolbarSurface, 6) }
+        val status = ui.row().apply {
+            background = ui.shape(ui.palette.selectedCell, 12)
+            setPadding(ui.dp(4), ui.dp(7), ui.dp(4), ui.dp(7))
+        }
+        val difficultyLabel = active.puzzle.difficulty.label
+        val difficulty = ui.text("Difficulty: $difficultyLabel", 14).apply {
+            gravity = Gravity.CENTER
+            contentDescription = "Difficulty $difficultyLabel"
+            text = SpannableString(text).apply {
+                setSpan(ForegroundColorSpan(ui.palette.accentInk), length - difficultyLabel.length,
+                    length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+        val time = ui.text(formatGameTime(active.elapsed(now()) / 1000), 16, bold = true).apply {
+            fontFeatureSettings = "'tnum'"
+            setCompoundDrawablesRelative(ui.icon(R.drawable.ic_clock, 17), null, null, null)
+            compoundDrawablePadding = ui.dp(7)
+            compoundDrawableTintList = ColorStateList.valueOf(ui.palette.ink)
+        }
+        val timer = ui.row().apply {
+            gravity = Gravity.CENTER
+            addView(time)
+        }
+        ui.equal(status, difficulty)
+        addDivider(status, 17, ui.palette.border)
+        ui.equal(status, timer)
+
+        val toolbar = ui.row()
         val undo = ui.gameAction("Undo", R.drawable.ic_undo) { edit { it.undo() } }
         val erase = ui.gameAction("Erase", R.drawable.ic_erase) { edit { it.erase() } }
         val notes = ui.gameAction("Notes: Off", R.drawable.ic_notes) {
@@ -507,30 +565,44 @@ class SudokuActivity : AppCompatActivity() {
         val hint = ui.gameAction("Hint", R.drawable.ic_hint, onClick = ::requestHint)
         val redo = ui.gameAction("Redo", R.drawable.ic_redo) { edit { it.redo() } }
         listOf(undo, erase, notes, hint, redo).forEachIndexed { index, action ->
-            ui.equal(toolbar, action, if (index == 0) 0 else 2)
+            ui.equal(toolbar, action, if (index == 0) 0 else 5)
+        }
+
+        val shortcuts = ui.row().apply { background = ui.shape(ui.palette.toolbarSurface, 12) }
+        val autoNotes = ui.gameAction("Auto-fill\nCandidates", R.drawable.ic_auto_notes, shortcut = true) { edit { it.autoNotes() } }
+        val check = ui.gameAction("Check\nProgress", R.drawable.ic_check_progress, shortcut = true, onClick = ::checkErrors)
+        val restart = ui.gameAction("Restart\nPuzzle", R.drawable.ic_restart, shortcut = true, onClick = ::resetBoard)
+        listOf(autoNotes, check, restart).forEachIndexed { index, button ->
+            if (index != 0) addDivider(shortcuts, 32, ui.palette.border)
+            ui.equal(shortcuts, button)
         }
 
         val digits = (1..9).map { digit ->
             ui.button(digit.toString()) { edit { it.enter(digit) } }.apply {
-                textSize = 20f
+                textSize = 23f
                 setPadding(0, ui.dp(3), 0, ui.dp(3))
+                ui.styleDigit(this, selected = false, completed = false)
             }
         }
         val root = FrameLayout(this).apply {
-            addView(SolvingLayout(this@SudokuActivity, ui, header, status, view, toolbar, digits),
+            addView(SolvingLayout(this@SudokuActivity, ui, header, status, view, toolbar, digits, shortcuts),
                 FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
-        controls = GameControls(time, undo, redo, notes, erase, pause, hint, digits)
+        controls = GameControls(time, undo, redo, notes, erase, pause, hint, autoNotes, restart, digits)
         displayedSecond = -1L
         mountPage(root)
         updateGame()
+    }
+
+    private fun addDivider(row: LinearLayout, height: Int, color: Int) {
+        row.addView(View(this).apply { setBackgroundColor(color) }, LinearLayout.LayoutParams(ui.dp(1), ui.dp(height)))
     }
 
     private fun updateClock(active: Game) {
         val seconds = active.elapsed(now()) / 1000
         if (seconds == displayedSecond) return
         displayedSecond = seconds
-        controls?.time?.text = formatTime(seconds)
+        controls?.time?.text = formatGameTime(seconds)
     }
 
     private fun updateGame() {
@@ -544,21 +616,26 @@ class SudokuActivity : AppCompatActivity() {
         if (buttons.notes.isSelected != active.notesMode) {
             buttons.notes.isSelected = active.notesMode
             buttons.notes.text = if (active.notesMode) "Notes: On" else "Notes: Off"
-            ui.styleButton(buttons.notes, active = active.notesMode, toolbar = true)
+            ui.styleGameAction(buttons.notes, selected = active.notesMode)
         }
         buttons.notes.isEnabled = playable
         buttons.erase.isEnabled = playable && active.puzzle.givens[active.selected] == 0 &&
             (active.values[active.selected] != 0 || active.notes[active.selected] != 0)
         buttons.pause.isEnabled = playable
         buttons.hint.isEnabled = playable && !hintPending
+        buttons.autoNotes.isEnabled = playable && active.hasBlank
+        val restartLabel = if (active.finished) "Replay\nPuzzle" else "Restart\nPuzzle"
+        if (buttons.restart.text.toString() != restartLabel) buttons.restart.text = restartLabel
         val hintLabel = if (hintPending) "Finding…" else "Hint"
         if (buttons.hint.text.toString() != hintLabel) buttons.hint.text = hintLabel
         for ((index, digit) in buttons.digits.withIndex()) {
             digit.isEnabled = active.canEnter(index + 1)
             val complete = active.counts[index + 1] == 9
-            if (digit.isActivated != complete) {
+            val selected = !complete && active.matchingDigit == index + 1
+            if (digit.isActivated != complete || digit.isSelected != selected) {
                 digit.isActivated = complete
-                ui.styleButton(digit, completed = complete)
+                digit.isSelected = selected
+                ui.styleDigit(digit, selected, complete)
                 ViewCompat.setStateDescription(digit, if (complete) "All nine placed" else null)
             }
         }
@@ -614,11 +691,7 @@ class SudokuActivity : AppCompatActivity() {
             if (!active.finished && !active.paused && active.hasBlank) {
                 put("Auto notes") { edit { it.autoNotes() } }
             }
-            put("Check for errors") {
-                val mistakes = active.mistakes().size
-                if (mistakes == 0) message("Check for errors", "There are no incorrect entries so far.")
-                else showMistakes(mistakes)
-            }
+            put("Check for errors", ::checkErrors)
             put(if (active.finished) "Replay puzzle" else "Reset board", ::resetBoard)
             put("How to play") { openGuide() }
             put("Settings", ::openSettings)
@@ -635,6 +708,12 @@ class SudokuActivity : AppCompatActivity() {
                 val width = this@SudokuActivity.window.decorView.width.coerceAtMost(ui.dp(520))
                 setLayout(if (width > 0) width else MATCH_PARENT, WRAP_CONTENT)
             }
+    }
+
+    private fun checkErrors() {
+        val mistakes = game?.mistakes()?.size ?: return
+        if (mistakes == 0) message("Check for errors", "There are no incorrect entries so far.")
+        else showMistakes(mistakes)
     }
 
     private fun chooseDifficulty() {

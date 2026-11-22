@@ -38,7 +38,7 @@ class AppearanceTest {
                 val label = "${theme.label} (${if (dark) "dark" else "light"})"
                 assertTrue("$label foreground", colorContrast(palette.ink, palette.surface) >= 4.5)
                 assertTrue("$label filled button", colorContrast(palette.onAccent, palette.accent) >= 4.5)
-                assertTrue("$label emphasized matching digit", colorContrast(palette.matchingCellInk, palette.matchingCell) >= 4.5)
+                assertTrue("$label emphasized matching digit", colorContrast(palette.accentInk, palette.matchingCell) >= 4.5)
                 assertTrue("$label matching outline", colorContrast(palette.accent, palette.relatedCell) >= 2.0)
                 assertTrue("$label completed keypad digit", colorContrast(palette.muted, palette.completedKey) >= 4.5)
                 assertTrue("$label selected notes", colorContrast(palette.ink, palette.selectedCell) >= 4.5)

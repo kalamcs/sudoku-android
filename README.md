@@ -19,18 +19,20 @@ through 9 exactly once. The starting clues stay fixed.
 - Pinch the board to zoom up to 3×. Drag with one finger to move around the
   enlarged board, then pinch inward or tap **Reset zoom** to see the full board.
 - Toggle **Notes: Off** or **Notes: On** to pencil in candidates. **Auto notes**
-  in the game menu lists the digits allowed by the current row, column, and box.
+  in the game menu and **Auto-fill Candidates** below the keypad list the digits
+  allowed by the current row, column, and box.
   If you correct or erase your latest entry before another board edit, the pencil
   marks it removed are restored. Undo and redo track entries and notes during the
   session.
 - **Hint** counts incorrect entries first and offers to highlight them. On a
   correct board, it explains a forced placement and can select the cell. Open
   the reasoning under a step to see the supporting constraints.
-- **Check for errors** in the game menu reports incorrect entries and offers
-  to highlight them. The timer pauses in the game menu and runs while a hint
-  or an error result is open.
+- **Check Progress** below the keypad and **Check for errors** in the game
+  menu report incorrect entries and offer to highlight them. **Restart Puzzle**
+  opens the reset confirmation. The timer pauses in the game menu and runs
+  while a hint or an error result is open.
 - **Pause** and Android Back save the puzzle and return to Home. Tap
-  **Continue** to pick up where you left off. After waking the phone or
+  **Continue Puzzle** to pick up where you left off. After waking the phone or
   returning to the app, an open puzzle resumes automatically.
   The home stats table shows solved puzzles, best times and dates, and average
   times by difficulty. The timer also stops when you leave the app or open the
@@ -38,7 +40,7 @@ through 9 exactly once. The starting clues stay fixed.
 - **Screen timeout during a game** follows Android by default. Settings can
   keep the display awake for at least two or three minutes after an interaction,
   or for as long as the puzzle is open in the foreground.
-- On screens up to 360 dp wide, the number keypad uses a 3×3 layout. After a
+- In portrait on screens up to 360 dp wide, the keypad uses a 3×3 layout. After a
   win, choose **View board** and then **Replay puzzle** to solve it again for
   practice. Only the first completion is recorded in your stats.
 

@@ -95,17 +95,16 @@ internal class GamePalette(
     val onAccent = highContrastInk(accent)
     val toolbarSurface = blend(surface, accent, if (dark) .08f else .05f)
     val selectedCell = blend(surface, accent, if (dark) .18f else .12f)
+    val matchingCell = blend(relatedCell, accent, .22f)
     val accentInk = (0..10).map { blend(accent, ink, it / 10f) }.first { color ->
-        listOf(page, surface, relatedCell, selectedCell).all { colorContrast(color, it) >= 4.5 }
+        listOf(page, surface, relatedCell, selectedCell, matchingCell).all { colorContrast(color, it) >= 4.5 }
     }
-    val matchingCell = blend(relatedCell, accent, .39f)
-    val matchingCellInk = highContrastInk(matchingCell)
-    val noteMarker = blend(surface, accent, if (dark) .27f else .24f)
+    val noteMarker = blend(relatedCell, accent, if (dark) .24f else .32f)
     val completedKey = blend(surface, ink, if (dark) .17f else .13f)
     val error = opaque(if (dark) 0xffa6b4 else 0xa12241)
     val errorSurface = blend(surface, error, if (dark) .16f else .1f)
     val gridLine = blend(surface, ink, if (dark) .28f else .26f)
-    val boxBorder = blend(surface, ink, .68f)
+    val boxBorder = blend(surface, ink, .89f)
 }
 
 private fun colors(dark: Boolean, page: Int, board: Int, accent: Int, related: Int, ink: Int) =

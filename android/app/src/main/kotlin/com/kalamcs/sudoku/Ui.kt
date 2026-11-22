@@ -3,6 +3,7 @@ package com.kalamcs.sudoku
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
 import android.graphics.drawable.RippleDrawable
@@ -16,6 +17,7 @@ import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.annotation.DrawableRes
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.widget.AppCompatButton
 import androidx.appcompat.widget.AppCompatImageButton
 import androidx.appcompat.widget.AppCompatRadioButton
@@ -39,6 +41,18 @@ internal class Ui(private val context: Context) {
         setColor(color)
         if (stroke != 0) setStroke(dp(1), stroke)
     }
+
+    fun dashboardSurface(radius: Int, tint: Float = .07f) = GradientDrawable(
+        GradientDrawable.Orientation.TOP_BOTTOM,
+        intArrayOf(palette.surface, blend(palette.surface, palette.accent, tint)),
+    ).apply {
+        cornerRadius = dp(radius).toFloat()
+        setStroke(dp(1), blend(palette.border, palette.surface, .28f))
+    }
+
+    fun dashboardPress(surface: Drawable) = RippleDrawable(
+        ColorStateList.valueOf((palette.accent and 0x00ffffff) or 0x20000000), surface, null,
+    )
 
     fun text(content: String, size: Int = 16, color: Int = palette.ink, bold: Boolean = false) =
         TextView(context).apply {
@@ -69,48 +83,56 @@ internal class Ui(private val context: Context) {
                 setCompoundDrawablesRelativeWithIntrinsicBounds(icon, 0, 0, 0)
                 compoundDrawablePadding = dp(4)
             }
-            styleButton(this, primary)
+            styleButton(this, if (primary) palette.accent else palette.surface,
+                if (primary) palette.onAccent else palette.ink, if (primary) 0 else palette.border)
             setOnClickListener { onClick() }
         }
 
-    fun gameAction(content: String, @DrawableRes icon: Int, onClick: () -> Unit) =
+    fun gameAction(content: String, @DrawableRes icon: Int, shortcut: Boolean = false, onClick: () -> Unit) =
         button(content, onClick = onClick).apply {
             textSize = 12f
             letterSpacing = 0f
             includeFontPadding = false
             setPadding(dp(2), dp(5), dp(2), dp(5))
-            setCompoundDrawablesRelativeWithIntrinsicBounds(0, icon, 0, 0)
-            compoundDrawablePadding = dp(3)
-            styleButton(this, toolbar = true)
+            setCompoundDrawablesRelative(null, this@Ui.icon(icon, if (shortcut) 21 else 23), null, null)
+            compoundDrawablePadding = dp(4)
+            styleGameAction(this, shortcut = shortcut)
         }
 
-    fun styleButton(
-        button: AppCompatButton,
-        primary: Boolean = false,
-        active: Boolean = false,
-        completed: Boolean = false,
-        toolbar: Boolean = false,
-    ) {
+    fun icon(@DrawableRes resource: Int, size: Int) = AppCompatResources.getDrawable(context, resource)?.mutate()?.apply {
+        setBounds(0, 0, dp(size), dp(size))
+    }
+
+    fun styleGameAction(button: AppCompatButton, selected: Boolean = false, shortcut: Boolean = false) {
+        styleButton(button, if (selected) palette.matchingCell else palette.toolbarSurface,
+            if (selected) palette.accentInk else palette.ink,
+            if (selected || shortcut) 0 else palette.border, radius = 10)
+    }
+
+    fun styleDigit(button: AppCompatButton, selected: Boolean, completed: Boolean) {
         val fill = when {
-            primary -> palette.accent
             completed -> palette.completedKey
-            active -> palette.selectedCell
-            toolbar -> palette.toolbarSurface
-            else -> palette.surface
+            selected -> palette.accent
+            else -> palette.toolbarSurface
         }
         val foreground = when {
-            primary -> palette.onAccent
             completed -> palette.muted
-            active -> palette.accentInk
+            selected -> palette.onAccent
             else -> palette.ink
         }
-        val border = when {
-            active -> palette.accentInk
-            primary || toolbar -> 0
-            else -> palette.border
-        }
-        button.background = buttonBackground(fill, border, foreground)
-        val colors = if (completed) ColorStateList.valueOf(foreground) else ColorStateList(
+        styleButton(button, fill, foreground, if (selected) 0 else palette.border, radius = 9, keepDisabledColor = completed)
+    }
+
+    private fun styleButton(
+        button: AppCompatButton,
+        fill: Int,
+        foreground: Int,
+        border: Int,
+        radius: Int = 4,
+        keepDisabledColor: Boolean = false,
+    ) {
+        button.background = buttonBackground(fill, border, foreground, radius)
+        val colors = if (keepDisabledColor) ColorStateList.valueOf(foreground) else ColorStateList(
             arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
             intArrayOf(blend(foreground, fill, .44f), foreground),
         )
@@ -120,7 +142,7 @@ internal class Ui(private val context: Context) {
 
     fun iconButton(label: String, @DrawableRes icon: Int, quiet: Boolean = false, onClick: () -> Unit) =
         AppCompatImageButton(context).apply {
-            val fill = if (quiet) palette.page else palette.surface
+            val fill = if (quiet) palette.toolbarSurface else palette.surface
             contentDescription = label
             setImageResource(icon)
             imageTintList = ColorStateList(
@@ -133,9 +155,9 @@ internal class Ui(private val context: Context) {
             setOnClickListener { onClick() }
         }
 
-    private fun buttonBackground(fill: Int, border: Int, foreground: Int) = RippleDrawable(
+    private fun buttonBackground(fill: Int, border: Int, foreground: Int, radius: Int = 4) = RippleDrawable(
         ColorStateList.valueOf((foreground and 0x00ffffff) or 0x23000000),
-        shape(fill, 4, border),
+        shape(fill, radius, border),
         null,
     )
 
