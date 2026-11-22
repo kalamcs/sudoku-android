@@ -336,7 +336,7 @@ internal class BoardView(
                     filledSelection -> palette.onAccent
                     matching -> palette.matchingCellInk
                     isGiven -> palette.ink
-                    else -> palette.accent
+                    else -> palette.accentInk
                 }
                 numeral(canvas, value, x + step / 2, y + step / 2, step * .58f, if (isGiven) bold else regular)
             } else if (notes[cell] != 0) {
@@ -375,8 +375,8 @@ internal class BoardView(
         }
         for (i in 0..9) {
             val thick = i % 3 == 0
-            paint.color = if (thick) palette.muted else palette.gridLine
-            paint.strokeWidth = if (thick) step * .075f else step * .018f
+            paint.color = if (thick) palette.boxBorder else palette.gridLine
+            paint.strokeWidth = if (thick) step * .068f else step * .018f
             val position = (i * step).coerceIn(paint.strokeWidth / 2, size - paint.strokeWidth / 2)
             canvas.drawLine(position, 0f, position, size, paint)
             canvas.drawLine(0f, position, size, position, paint)

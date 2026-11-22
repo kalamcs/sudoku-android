@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
 import android.widget.TextView
 import androidx.core.view.ViewCompat
@@ -115,13 +116,53 @@ class NativeGameTest {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
-                val view = BoardView(activity, GameTheme.FLUENT.palette(dark = false))
+                val view = BoardView(activity, GameTheme.OCEAN.palette(dark = false))
                 val width = View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.AT_MOST)
                 val height = View.MeasureSpec.makeMeasureSpec(180, View.MeasureSpec.AT_MOST)
                 view.measure(width, height)
                 assertEquals(180, view.measuredWidth)
                 assertEquals(180, view.measuredHeight)
             }
+        }
+    }
+
+    @Test fun solvingScreenFitsPhonePortraitsAndUsesTwoPanesInLandscape() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
+            onView(withText("Continue")).perform(click())
+            scenario.onActivity { activity ->
+                val layout = activity.findViewById<SolvingLayout>(R.id.page_scroll)
+                val contents = TreeIterables.depthFirstViewTraversal(layout).toList()
+                val board = contents.filterIsInstance<BoardView>().single()
+                val text = contents.filterIsInstance<TextView>()
+                val toolbar = text.single { it.text == "Undo" }.parent as ViewGroup
+                assertEquals(listOf("Undo", "Erase", "Notes: Off", "Hint", "Redo"),
+                    (0 until toolbar.childCount).map { (toolbar.getChildAt(it) as TextView).text.toString() })
+
+                val density = activity.resources.displayMetrics.density
+                val originalWidth = layout.width
+                val originalHeight = layout.height
+                for ((widthDp, heightDp) in listOf(320 to 568, 360 to 640, 390 to 844, 430 to 932, 780 to 360)) {
+                    val width = (widthDp * density).toInt()
+                    val height = ((heightDp - 72) * density).toInt()
+                    layout.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+                    layout.layout(0, 0, width, height)
+                    assertEquals(board.width, board.height)
+                    assertFalse("${widthDp}×$heightDp requires scrolling (content ${layout.getChildAt(0).height}px, " +
+                        "viewport ${layout.height}px, board ${board.height}px)", layout.canScrollVertically(1))
+                    val keypadRow = text.single { it.text == "1" }.parent as ViewGroup
+                    assertEquals(if (widthDp <= 360 || widthDp > heightDp) 3 else 9, keypadRow.childCount)
+                    val controls = toolbar.parent as View
+                    if (widthDp > heightDp) assertTrue("Landscape board edge ${board.right}px, tools start ${controls.left}px",
+                        board.right < controls.left)
+                }
+                layout.measure(View.MeasureSpec.makeMeasureSpec(originalWidth, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(originalHeight, View.MeasureSpec.EXACTLY))
+                layout.layout(0, 0, originalWidth, originalHeight)
+            }
+            onView(withContentDescription("Back to home")).perform(click())
+            onView(withText("Continue your game")).check(matches(isDisplayed()))
         }
     }
 
@@ -166,7 +207,7 @@ class NativeGameTest {
             scenario.moveToState(Lifecycle.State.CREATED)
             scenario.moveToState(Lifecycle.State.RESUMED)
             onView(withText("Notes: Off")).perform(scrollTo(), click())
-            onView(withText("Pause")).perform(scrollTo(), click())
+            onView(withContentDescription("Pause")).perform(scrollTo(), click())
             onView(withText("Continue your game")).check(matches(isDisplayed()))
             onView(withText("Continue")).perform(click())
             onView(withText("Notes: On")).check(matches(isDisplayed()))
@@ -195,7 +236,7 @@ class NativeGameTest {
                 assertKeepScreenOn(scenario, false)
                 onView(withText("Continue")).perform(click())
                 assertKeepScreenOn(scenario, true)
-                onView(withText("Pause")).perform(scrollTo(), click())
+                onView(withContentDescription("Pause")).perform(scrollTo(), click())
                 assertKeepScreenOn(scenario, false)
             }
         } finally {
@@ -272,19 +313,19 @@ class NativeGameTest {
             ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
                 onView(withContentDescription("Settings")).perform(click())
                 onView(withText("Light")).check(matches(isChecked()))
-                onView(withText("Fluent 2")).check(matches(isChecked()))
+                onView(withText("Ocean Blue")).check(matches(isChecked()))
                 onView(withText("Back")).perform(click())
                 onView(withText("Continue")).perform(click())
                 onView(withContentDescription("Game menu")).perform(click())
                 onView(withText("Settings")).perform(click())
                 onView(withText("Dark")).perform(click())
-                onView(withText("Catppuccin Mocha")).perform(click()).check(matches(isChecked()))
-                assertEquals(AppearanceSettings(AppearanceMode.DARK, GameTheme.CATPPUCCIN), preferences.load())
-                onView(withText("Back")).perform(click())
+                onView(withText("Royal Purple")).perform(scrollTo(), click()).check(matches(isChecked()))
+                assertEquals(AppearanceSettings(AppearanceMode.DARK, GameTheme.PURPLE), preferences.load())
+                onView(withText("Back")).perform(scrollTo(), click())
                 onView(withText("Extreme")).check(matches(isDisplayed()))
                 scenario.onActivity { activity ->
                     val root = activity.findViewById<View>(R.id.page_scroll).parent as View
-                    assertEquals(GameTheme.CATPPUCCIN.palette(dark = true).page, (root.background as ColorDrawable).color)
+                    assertEquals(GameTheme.PURPLE.palette(dark = true).page, (root.background as ColorDrawable).color)
                 }
 
                 onView(withContentDescription("Game menu")).perform(click())
@@ -292,9 +333,7 @@ class NativeGameTest {
                 onView(withText("System")).perform(click())
                 scenario.recreate()
                 onView(withText("System")).check(matches(isChecked()))
-                val systemDark = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
-                    Configuration.UI_MODE_NIGHT_YES
-                onView(withText(GameTheme.CATPPUCCIN.label(systemDark))).check(matches(isChecked()))
+                onView(withText("Royal Purple")).check(matches(isChecked()))
             }
         } finally {
             preferences.save(initial)
@@ -305,7 +344,8 @@ class NativeGameTest {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
             onView(withText("Continue")).perform(click())
-            onView(withText("Auto notes")).perform(scrollTo(), click())
+            onView(withContentDescription("Game menu")).perform(click())
+            onView(withText("Auto notes")).perform(click())
             val board = onView(isAssignableFrom(BoardView::class.java))
             board.perform(scrollTo(), tapFirstCell())
             onView(withText("3")).perform(scrollTo(), click())
@@ -330,7 +370,7 @@ class NativeGameTest {
             onView(withText("Continue")).perform(click())
             onView(withText("Pinch to zoom")).check(matches(isDisplayed()))
             onView(isAssignableFrom(BoardView::class.java)).perform(pinch(out = true))
-            onView(withText("Reset zoom")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withContentDescription("Reset zoom")).check(matches(isDisplayed()))
             onView(isAssignableFrom(BoardView::class.java)).perform(scrollTo(), pinch(out = false))
             onView(withText("Pinch to zoom")).perform(scrollTo()).check(matches(isDisplayed()))
         }

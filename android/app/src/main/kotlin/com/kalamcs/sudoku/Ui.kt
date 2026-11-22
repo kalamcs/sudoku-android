@@ -23,7 +23,7 @@ import androidx.core.view.ViewCompat
 import kotlin.math.roundToInt
 
 internal class Ui(private val context: Context) {
-    var palette = GameTheme.FLUENT.palette(dark = false)
+    var palette = GameTheme.OCEAN.palette(dark = false)
 
     fun dp(value: Int) = (value * context.resources.displayMetrics.density).roundToInt()
 
@@ -73,20 +73,42 @@ internal class Ui(private val context: Context) {
             setOnClickListener { onClick() }
         }
 
-    fun styleButton(button: AppCompatButton, primary: Boolean = false, active: Boolean = false, completed: Boolean = false) {
+    fun gameAction(content: String, @DrawableRes icon: Int, onClick: () -> Unit) =
+        button(content, onClick = onClick).apply {
+            textSize = 12f
+            letterSpacing = 0f
+            includeFontPadding = false
+            setPadding(dp(2), dp(5), dp(2), dp(5))
+            setCompoundDrawablesRelativeWithIntrinsicBounds(0, icon, 0, 0)
+            compoundDrawablePadding = dp(3)
+            styleButton(this, toolbar = true)
+        }
+
+    fun styleButton(
+        button: AppCompatButton,
+        primary: Boolean = false,
+        active: Boolean = false,
+        completed: Boolean = false,
+        toolbar: Boolean = false,
+    ) {
         val fill = when {
             primary -> palette.accent
             completed -> palette.completedKey
             active -> palette.selectedCell
+            toolbar -> palette.toolbarSurface
             else -> palette.surface
         }
         val foreground = when {
             primary -> palette.onAccent
             completed -> palette.muted
-            active -> palette.accent
+            active -> palette.accentInk
             else -> palette.ink
         }
-        val border = if (primary) 0 else if (active) palette.accent else palette.border
+        val border = when {
+            active -> palette.accentInk
+            primary || toolbar -> 0
+            else -> palette.border
+        }
         button.background = buttonBackground(fill, border, foreground)
         val colors = if (completed) ColorStateList.valueOf(foreground) else ColorStateList(
             arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
@@ -96,14 +118,18 @@ internal class Ui(private val context: Context) {
         button.compoundDrawableTintList = colors
     }
 
-    fun iconButton(label: String, @DrawableRes icon: Int, onClick: () -> Unit) =
+    fun iconButton(label: String, @DrawableRes icon: Int, quiet: Boolean = false, onClick: () -> Unit) =
         AppCompatImageButton(context).apply {
+            val fill = if (quiet) palette.page else palette.surface
             contentDescription = label
             setImageResource(icon)
-            imageTintList = ColorStateList.valueOf(palette.ink)
+            imageTintList = ColorStateList(
+                arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+                intArrayOf(blend(palette.ink, fill, .55f), palette.ink),
+            )
             minimumWidth = dp(48)
             minimumHeight = dp(48)
-            background = buttonBackground(palette.surface, palette.border, palette.ink)
+            background = buttonBackground(fill, if (quiet) 0 else palette.border, palette.ink)
             setOnClickListener { onClick() }
         }
 
@@ -129,7 +155,7 @@ internal class Ui(private val context: Context) {
                 setTextColor(palette.ink)
                 buttonTintList = ColorStateList(
                     arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                    intArrayOf(palette.accent, palette.muted),
+                    intArrayOf(palette.accentInk, palette.muted),
                 )
                 setOnClickListener { onChange(option) }
             }
@@ -145,7 +171,7 @@ internal class Ui(private val context: Context) {
         for (button in listOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL)) {
             dialog.getButton(button)?.apply {
                 isAllCaps = false
-                setTextColor(palette.accent)
+                setTextColor(palette.accentInk)
             }
         }
     }

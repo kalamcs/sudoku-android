@@ -19,9 +19,10 @@ through 9 exactly once. The starting clues stay fixed.
 - Pinch the board to zoom up to 3×. Drag with one finger to move around the
   enlarged board, then pinch inward or tap **Reset zoom** to see the full board.
 - Toggle **Notes: Off** or **Notes: On** to pencil in candidates. **Auto notes**
-  lists the digits allowed by the current row, column, and box. If you correct
-  or erase your latest entry before another board edit, the pencil marks it
-  removed are restored. Undo and redo track entries and notes during the session.
+  in the game menu lists the digits allowed by the current row, column, and box.
+  If you correct or erase your latest entry before another board edit, the pencil
+  marks it removed are restored. Undo and redo track entries and notes during the
+  session.
 - **Hint** counts incorrect entries first and offers to highlight them. On a
   correct board, it explains a forced placement and can select the cell. Open
   the reasoning under a step to see the supporting constraints.
@@ -84,15 +85,14 @@ Further reading on puzzle difficulty:
 ## Appearance
 
 Open **Settings** from the home screen or the game menu. The app starts in
-**Light** mode with **Fluent 2** styling. Choose **Dark** to use dark colors or
+**Light** mode with **Ocean Blue** styling. Choose **Dark** to use dark colors or
 **System** to follow Android's light or dark setting. Appearance and theme
 choices are saved independently.
 
-The theme choices are [Fluent 2](https://fluent2.microsoft.design/color),
-[Nord](https://www.nordtheme.com/docs/colors-and-palettes/),
-[Catppuccin](https://catppuccin.com/palette/) with Latte in light mode and Mocha
-in dark mode, and [Google Material](https://m3.material.io/styles/color/the-color-system/).
-Each theme also colors the puzzle, notes, and worked examples.
+Choose Ocean Blue, Forest Green, Royal Purple, Warm Sand, Rose, or Slate.
+Each palette colors the puzzle, controls, notes, and worked examples in both
+light and dark modes. If your saved palette was retired, the app uses Ocean
+Blue with your saved light, dark, or system mode.
 
 ## Build and test
 

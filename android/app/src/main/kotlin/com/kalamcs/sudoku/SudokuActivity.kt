@@ -14,6 +14,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.text.SpannableString
 import android.text.Spanned
+import android.text.TextUtils
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.view.Gravity
@@ -81,9 +82,8 @@ class SudokuActivity : AppCompatActivity() {
         val undo: AppCompatButton,
         val redo: AppCompatButton,
         val notes: AppCompatButton,
-        val autoNotes: AppCompatButton,
         val erase: AppCompatButton,
-        val pause: AppCompatButton,
+        val pause: View,
         val hint: AppCompatButton,
         val digits: List<AppCompatButton>,
     )
@@ -219,7 +219,7 @@ class SudokuActivity : AppCompatActivity() {
         store.save(active, lastSaveTime)
     }
 
-    private fun page(): LinearLayout {
+    private fun preparePage() {
         dismissPageDialog()
         updateScreenTimeout()
         val systemDark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
@@ -234,8 +234,11 @@ class SudokuActivity : AppCompatActivity() {
             @Suppress("DEPRECATION")
             window.navigationBarColor = if (palette.dark) palette.page else palette.ink
         }
+    }
+
+    private fun page(): LinearLayout {
+        preparePage()
         val root = layoutInflater.inflate(R.layout.activity_main, null) as FrameLayout
-        root.setBackgroundColor(palette.page)
         val frame = root.findViewById<FrameLayout>(R.id.page_content)
         val column = ui.column().apply {
             setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(20))
@@ -245,22 +248,29 @@ class SudokuActivity : AppCompatActivity() {
         val maxWidth = resources.configuration.screenWidthDp.coerceAtMost(pageWidth)
         column.layoutDirection = View.LAYOUT_DIRECTION_LTR
         frame.addView(column, FrameLayout.LayoutParams(ui.dp(maxWidth), WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
-        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
-            val system = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            view.setPadding(system.left, system.top, system.right, system.bottom)
+        mountPage(root) { horizontalInsets ->
             if (maxWidth == resources.configuration.screenWidthDp) {
-                val width = (ui.dp(maxWidth) - system.left - system.right).coerceAtLeast(ui.dp(220))
+                val width = (ui.dp(maxWidth) - horizontalInsets).coerceAtLeast(ui.dp(220))
                 val params = column.layoutParams
                 if (params.width != width) {
                     params.width = width
                     column.layoutParams = params
                 }
             }
+        }
+        return column
+    }
+
+    private fun mountPage(root: FrameLayout, onHorizontalInsets: (Int) -> Unit = {}) {
+        root.setBackgroundColor(ui.palette.page)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val system = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(system.left, system.top, system.right, system.bottom)
+            onHorizontalInsets(system.left + system.right)
             insets
         }
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
-        return column
     }
 
     private fun title(page: LinearLayout, text: String, action: String? = null, go: (() -> Unit)? = null, trailing: View? = null) {
@@ -288,7 +298,7 @@ class SudokuActivity : AppCompatActivity() {
         board = null
         val page = page()
         val busy = restoring || generationInProgress
-        val settingsButton = if (busy) null else ui.iconButton("Settings", R.drawable.ic_settings, ::openSettings)
+        val settingsButton = if (busy) null else ui.iconButton("Settings", R.drawable.ic_settings, onClick = ::openSettings)
         title(page, "Sudoku", trailing = settingsButton)
         if (busy) {
             val loading = ui.row()
@@ -437,24 +447,7 @@ class SudokuActivity : AppCompatActivity() {
     private fun renderGame() {
         val active = game ?: return renderHome()
         screen = Screen.GAME
-        val page = page()
-        val header = ui.row()
-        header.addView(ui.iconButton("Game menu", R.drawable.ic_menu) { menu() },
-            LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
-        header.addView(ui.heading("Sudoku", 28), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginStart = ui.dp(10) })
-        val time = ui.text(formatTime(active.elapsed(now()) / 1000), 19, ui.palette.ink, true).apply {
-            gravity = Gravity.CENTER
-            setPadding(ui.dp(12), ui.dp(6), ui.dp(12), ui.dp(6))
-            background = ui.shape(ui.palette.selectedCell, ui.palette.cardRadius)
-        }
-        header.addView(time)
-        ui.add(page, header)
-        ui.add(page, ui.text(active.puzzle.difficulty.label, 16, ui.palette.accent, true).apply {
-            setPadding(ui.dp(4), 0, 0, 0)
-            contentDescription = "Difficulty ${active.puzzle.difficulty.label}"
-        }, 6)
-
-        val card = ui.card(9)
+        preparePage()
         val view = BoardView(this, ui.palette) { cell ->
             if (!active.paused) {
                 cancelHint()
@@ -463,62 +456,73 @@ class SudokuActivity : AppCompatActivity() {
             }
         }
         board = view
-        ui.add(card, view)
 
-        val first = ui.row()
-        val undo = ui.button("Undo", icon = R.drawable.ic_undo) { edit { it.undo() } }
-        val redo = ui.button("Redo", icon = R.drawable.ic_redo) { edit { it.redo() } }
-        val notes = ui.button("Notes: Off", icon = R.drawable.ic_notes) {
+        val header = ui.row()
+        val back = ui.iconButton("Back to home", R.drawable.ic_back, quiet = true, onClick = ::showHome)
+        val resetZoom = ui.iconButton("Reset zoom", R.drawable.ic_reset_zoom, quiet = true, onClick = view::resetZoom)
+            .apply { visibility = View.GONE }
+        val pause = ui.iconButton("Pause", R.drawable.ic_pause, quiet = true, onClick = ::showHome)
+        val menu = ui.iconButton("Game menu", R.drawable.ic_menu, quiet = true, onClick = ::menu)
+        fun addNavigation(button: View) = header.addView(button, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
+        addNavigation(back)
+        header.addView(ui.heading("Sudoku", 22).apply {
+            gravity = Gravity.CENTER
+            setSingleLine()
+            ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        addNavigation(resetZoom)
+        addNavigation(pause)
+        addNavigation(menu)
+
+        val status = ui.row().apply { setPadding(ui.dp(4), 0, ui.dp(4), 0) }
+        status.addView(ui.text(active.puzzle.difficulty.label, 14, ui.palette.accentInk, bold = true).apply {
+            contentDescription = "Difficulty ${active.puzzle.difficulty.label}"
+        })
+        val gesture = ui.text("Pinch to zoom", 12, ui.palette.muted).apply {
+            gravity = Gravity.CENTER
+            setSingleLine()
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(ui.dp(4), 0, ui.dp(4), 0)
+        }
+        status.addView(gesture, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        val time = ui.text(formatTime(active.elapsed(now()) / 1000), 15, bold = true).apply {
+            fontFeatureSettings = "'tnum'"
+        }
+        status.addView(time)
+        view.onZoomChanged = { zoomed ->
+            resetZoom.visibility = if (zoomed) View.VISIBLE else View.GONE
+            gesture.text = if (zoomed) "Drag to pan" else "Pinch to zoom"
+        }
+
+        val toolbar = ui.row().apply { background = ui.shape(ui.palette.toolbarSurface, 6) }
+        val undo = ui.gameAction("Undo", R.drawable.ic_undo) { edit { it.undo() } }
+        val erase = ui.gameAction("Erase", R.drawable.ic_erase) { edit { it.erase() } }
+        val notes = ui.gameAction("Notes: Off", R.drawable.ic_notes) {
             if (!active.paused && !active.finished) {
                 active.notesMode = !active.notesMode
                 saveGame()
                 updateGame()
             }
         }
-        ui.equal(first, undo)
-        ui.equal(first, redo, 5)
-        ui.equal(first, notes, 5)
-        ui.add(card, first, 10)
-
-        val second = ui.row()
-        val autoNotes = ui.button("Auto notes", icon = R.drawable.ic_auto_notes) { edit { it.autoNotes() } }
-        val erase = ui.button("Erase", icon = R.drawable.ic_erase) { edit { it.erase() } }
-        val pause = ui.button("Pause", icon = R.drawable.ic_pause) { showHome() }
-        ui.equal(second, autoNotes)
-        ui.equal(second, erase, 5)
-        ui.equal(second, pause, 5)
-        ui.add(card, second, 5)
+        val hint = ui.gameAction("Hint", R.drawable.ic_hint, onClick = ::requestHint)
+        val redo = ui.gameAction("Redo", R.drawable.ic_redo) { edit { it.redo() } }
+        listOf(undo, erase, notes, hint, redo).forEachIndexed { index, action ->
+            ui.equal(toolbar, action, if (index == 0) 0 else 2)
+        }
 
         val digits = (1..9).map { digit ->
             ui.button(digit.toString()) { edit { it.enter(digit) } }.apply {
-                textSize = 17f
+                textSize = 20f
                 setPadding(0, ui.dp(3), 0, ui.dp(3))
             }
         }
-        val keypadColumns = if (resources.configuration.screenWidthDp <= 360) 3 else 9
-        digits.chunked(keypadColumns).forEachIndexed { index, keys ->
-            val row = ui.row()
-            keys.forEachIndexed { column, key -> ui.equal(row, key, if (column == 0) 0 else 3) }
-            ui.add(card, row, if (index == 0) 8 else 4)
+        val root = FrameLayout(this).apply {
+            addView(SolvingLayout(this@SudokuActivity, ui, header, status, view, toolbar, digits),
+                FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
-
-        val actions = ui.row()
-        val gesture = ui.text("Pinch to zoom", 13, ui.palette.muted)
-        actions.addView(gesture, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        val resetZoom = ui.button("Reset zoom") { view.resetZoom() }.apply { visibility = View.GONE }
-        actions.addView(resetZoom, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
-        val hint = ui.button("Hint", true, R.drawable.ic_hint) { requestHint() }
-        actions.addView(hint, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginStart = ui.dp(6) })
-        view.onZoomChanged = { zoomed ->
-            if ((resetZoom.visibility == View.VISIBLE) != zoomed) {
-                resetZoom.visibility = if (zoomed) View.VISIBLE else View.GONE
-                gesture.text = if (zoomed) "Drag to pan" else "Pinch to zoom"
-            }
-        }
-        ui.add(card, actions, 8)
-        ui.add(page, card, 10)
-        controls = GameControls(time, undo, redo, notes, autoNotes, erase, pause, hint, digits)
+        controls = GameControls(time, undo, redo, notes, erase, pause, hint, digits)
         displayedSecond = -1L
+        mountPage(root)
         updateGame()
     }
 
@@ -540,10 +544,9 @@ class SudokuActivity : AppCompatActivity() {
         if (buttons.notes.isSelected != active.notesMode) {
             buttons.notes.isSelected = active.notesMode
             buttons.notes.text = if (active.notesMode) "Notes: On" else "Notes: Off"
-            ui.styleButton(buttons.notes, active = active.notesMode)
+            ui.styleButton(buttons.notes, active = active.notesMode, toolbar = true)
         }
         buttons.notes.isEnabled = playable
-        buttons.autoNotes.isEnabled = playable && active.hasBlank
         buttons.erase.isEnabled = playable && active.puzzle.givens[active.selected] == 0 &&
             (active.values[active.selected] != 0 || active.notes[active.selected] != 0)
         buttons.pause.isEnabled = playable
@@ -607,24 +610,31 @@ class SudokuActivity : AppCompatActivity() {
         val active = game ?: return
         cancelHint()
         updateGame()
-        val actions = linkedMapOf<String, () -> Unit>(
-            "How to play" to { openGuide() },
-            "Settings" to { openSettings() },
-            "Home" to { showHome() },
-            "New game" to { chooseDifficulty() },
-            "Check for errors" to {
+        val actions = linkedMapOf<String, () -> Unit>().apply {
+            if (!active.finished && !active.paused && active.hasBlank) {
+                put("Auto notes") { edit { it.autoNotes() } }
+            }
+            put("Check for errors") {
                 val mistakes = active.mistakes().size
                 if (mistakes == 0) message("Check for errors", "There are no incorrect entries so far.")
                 else showMistakes(mistakes)
-            },
-            (if (active.finished) "Replay puzzle" else "Reset board") to { resetBoard() },
-            "Send feedback" to { feedback() },
-        )
+            }
+            put(if (active.finished) "Replay puzzle" else "Reset board", ::resetBoard)
+            put("How to play") { openGuide() }
+            put("Settings", ::openSettings)
+            put("Home", ::showHome)
+            put("New game", ::chooseDifficulty)
+            put("Send feedback", ::feedback)
+        }
         AlertDialog.Builder(this)
-            .setTitle("${active.puzzle.difficulty.label} game")
+            .setTitle("Game menu")
             .setItems(actions.keys.toTypedArray()) { _, which -> actions.values.elementAt(which).invoke() }
             .setNegativeButton("Close", null)
-            .showThemed(pauseClock = true)
+            .showThemed(pauseClock = true).window?.apply {
+                setGravity(Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
+                val width = this@SudokuActivity.window.decorView.width.coerceAtMost(ui.dp(520))
+                setLayout(if (width > 0) width else MATCH_PARENT, WRAP_CONTENT)
+            }
     }
 
     private fun chooseDifficulty() {
@@ -676,7 +686,7 @@ class SudokuActivity : AppCompatActivity() {
 
         val themeCard = ui.card()
         ui.add(themeCard, ui.heading("Theme", 20))
-        ui.add(themeCard, ui.choices(GameTheme.entries, appearance.theme, { it.label(ui.palette.dark) }) {
+        ui.add(themeCard, ui.choices(GameTheme.entries, appearance.theme, GameTheme::label) {
             changeAppearance(appearance.copy(theme = it))
         }, 4)
         ui.add(page, themeCard, 12)
@@ -693,10 +703,13 @@ class SudokuActivity : AppCompatActivity() {
 
     private fun changeAppearance(updated: AppearanceSettings) {
         if (appearance == updated) return
+        val position = findViewById<ScrollView>(R.id.page_scroll)?.scrollY ?: 0
         appearance = updated
         appearanceStore.save(updated)
         delegate.localNightMode = updated.mode.nightMode
         renderSettings()
+        val scroll = findViewById<ScrollView>(R.id.page_scroll)
+        scroll.post { scroll.scrollTo(0, position) }
     }
 
     private fun leaveSettings() {
@@ -895,7 +908,7 @@ class SudokuActivity : AppCompatActivity() {
         dialog.dismiss()
     }
 
-    private fun AlertDialog.Builder.showThemed(pauseClock: Boolean = false) {
+    private fun AlertDialog.Builder.showThemed(pauseClock: Boolean = false): AlertDialog {
         val resumeClock = dialogPausesClock && !pauseClock
         dismissPageDialog()
         val dialog = create()
@@ -917,5 +930,6 @@ class SudokuActivity : AppCompatActivity() {
         }
         dialog.show()
         ui.tintDialog(dialog)
+        return dialog
     }
 }
