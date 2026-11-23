@@ -156,7 +156,7 @@ internal class GuideScreen(private val context: Context, private val ui: Ui) {
     }
 
     fun strategies(page: LinearLayout, onLesson: (Technique) -> Unit) {
-        val basics = ui.card()
+        val basics = ui.card().apply { background = ui.dashboardSurface(ui.palette.cardRadius) }
         ui.add(basics, ui.heading("Basic solving methods", 20))
         ui.add(basics, ui.text("Start with a row, column, or box that is nearly full. List the digits that are missing."), 8)
         ui.add(basics, ui.text("Check an empty cell against its row, column, and box. If only one digit fits, place it."), 8)
@@ -164,7 +164,7 @@ internal class GuideScreen(private val context: Context, private val ui: Ui) {
         for (technique in Guide.basicTechniques) addLessonLink(basics, technique, onLesson)
         ui.add(page, basics, 12)
 
-        val advanced = ui.card()
+        val advanced = ui.card().apply { background = ui.dashboardSurface(ui.palette.cardRadius) }
         ui.add(advanced, ui.heading("Advanced solving techniques", 20))
         ui.add(advanced, ui.text("When the basic checks stall, look for patterns that let you cross off candidates. After each elimination, check for a single you can fill."), 8)
         for (technique in Guide.advancedTechniques) addLessonLink(advanced, technique, onLesson)
@@ -173,14 +173,13 @@ internal class GuideScreen(private val context: Context, private val ui: Ui) {
 
     private fun addRule(page: LinearLayout, sample: BoardSample, sampleWidth: Int, explanation: String) {
         val row = ui.row().apply { minimumHeight = ui.dp(73) }
-        val checkPalette = GameTheme.FOREST.palette(ui.palette.dark)
         val illustration = FrameLayout(context).apply {
             addView(BoardSampleView(context, ui.palette, sample), FrameLayout.LayoutParams(ui.dp(sampleWidth), WRAP_CONTENT, Gravity.CENTER))
             addView(ImageView(context).apply {
-                background = ui.shape(checkPalette.accent, 12)
+                background = ui.shape(ui.palette.accent, 12)
                 setPadding(ui.dp(3), ui.dp(3), ui.dp(3), ui.dp(3))
                 setImageDrawable(ui.icon(R.drawable.ic_check, 14))
-                imageTintList = ColorStateList.valueOf(checkPalette.onAccent)
+                imageTintList = ColorStateList.valueOf(ui.palette.onAccent)
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, FrameLayout.LayoutParams(ui.dp(18), ui.dp(18), Gravity.END or Gravity.BOTTOM))
         }
@@ -192,22 +191,36 @@ internal class GuideScreen(private val context: Context, private val ui: Ui) {
     }
 
     private fun addLessonLink(section: LinearLayout, technique: Technique, onLesson: (Technique) -> Unit) {
-        ui.add(section, ui.button(technique.title) { onLesson(technique) }, 12)
-        ui.add(section, ui.text(Guide.definition(technique), 15, ui.palette.muted), 4)
+        val link = ui.column().apply {
+            background = ui.dashboardPress(ui.shape(ui.palette.toolbarSurface, 10, ui.palette.border))
+            setPadding(ui.dp(12), ui.dp(9), ui.dp(12), ui.dp(9))
+            minimumHeight = ui.dp(48)
+            isFocusable = true
+            androidx.core.view.ViewCompat.setScreenReaderFocusable(this, true)
+            setOnClickListener { onLesson(technique) }
+            ui.add(this, ui.text(technique.title, 16, ui.palette.accentInk, bold = true))
+            ui.add(this, ui.text(Guide.definition(technique), 14, ui.palette.muted), 4)
+        }
+        ui.add(section, link, 10)
     }
 
     fun lesson(page: LinearLayout, technique: Technique) {
         val lesson = Guide.lesson(technique)
-        val card = ui.card()
-        ui.add(card, ui.text(lesson.summary, 17))
+        val card = ui.card().apply { background = ui.dashboardSurface(ui.palette.cardRadius, .035f) }
+        ui.add(card, callout(lesson.summary))
         ui.add(card, ui.heading("Worked example", 20), 18)
         addPicture(card, lesson.pictures.first())
         for ((index, instruction) in lesson.instructions.withIndex()) {
             if (lesson.pictures.size > 1 && index == 3) addPicture(card, lesson.pictures[1])
             ui.add(card, ui.text("${index + 1}. $instruction"), 10)
         }
-        ui.add(card, ui.text(lesson.takeaway, 15, ui.palette.muted, bold = true), 18)
+        ui.add(card, callout(lesson.takeaway), 18)
         ui.add(page, card, 16)
+    }
+
+    private fun callout(text: String) = ui.text(text, 15, ui.palette.ink, bold = true).apply {
+        background = ui.shape(ui.palette.selectedCell, 9)
+        setPadding(ui.dp(10), ui.dp(8), ui.dp(10), ui.dp(8))
     }
 
     private fun addPicture(container: LinearLayout, picture: GuidePicture) {

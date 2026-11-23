@@ -137,12 +137,11 @@ internal class FeedbackScreen(private val context: Context, private val ui: Ui) 
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(0, ui.dp(86), 0, 0)
         }
-        val green = GameTheme.FOREST.palette(ui.palette.dark)
         val check = ImageView(context).apply {
-            background = ui.shape(green.relatedCell, 55)
+            background = ui.shape(ui.palette.successSurface, 55)
             setPadding(ui.dp(23), ui.dp(23), ui.dp(23), ui.dp(23))
             setImageDrawable(ui.icon(R.drawable.ic_check, 48))
-            imageTintList = ColorStateList.valueOf(green.accentInk)
+            imageTintList = ColorStateList.valueOf(ui.palette.successInk)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         body.addView(check, LinearLayout.LayoutParams(ui.dp(92), ui.dp(92)))
@@ -164,6 +163,7 @@ internal class FeedbackScreen(private val context: Context, private val ui: Ui) 
         inputType = type
         filters = arrayOf(InputFilter.LengthFilter(limit))
         setText(value)
+        ui.tintTextInput(this)
     }
 
     private fun primaryButton(label: String, icon: Int = 0, onClick: () -> Unit) =

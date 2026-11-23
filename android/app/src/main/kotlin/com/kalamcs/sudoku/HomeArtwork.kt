@@ -85,7 +85,7 @@ internal class SavedPuzzlePreview(context: Context, private val palette: GamePal
             }
             val digit = game.values[index]
             if (digit != 0) {
-                paint.color = if (game.puzzle.givens[index] != 0) palette.ink else palette.accentInk
+                paint.color = if (game.puzzle.givens[index] != 0) palette.givenDigit else palette.enteredDigit
                 val baseline = top + cellSide / 2 - (paint.ascent() + paint.descent()) / 2
                 canvas.drawText(digit.toString(), left + cellSide / 2, baseline, paint)
             }
@@ -107,14 +107,9 @@ internal class SavedPuzzlePreview(context: Context, private val palette: GamePal
     }
 }
 
-internal class DifficultyBars(difficulty: Difficulty, dark: Boolean) : Drawable() {
+internal class DifficultyBars(difficulty: Difficulty, palette: GamePalette) : Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = (when (difficulty) {
-            Difficulty.EASY -> if (dark) 0x52dac1 else 0x22b9a0
-            Difficulty.MEDIUM -> if (dark) 0x65b4ff else 0x258cf0
-            Difficulty.HARD -> if (dark) 0xb289ff else 0x8956eb
-            Difficulty.EXTREME -> if (dark) 0xff89b8 else 0xe4508c
-        }) or 0xff000000.toInt()
+        color = palette.difficultyAccent(difficulty)
     }
 
     override fun draw(canvas: Canvas) {

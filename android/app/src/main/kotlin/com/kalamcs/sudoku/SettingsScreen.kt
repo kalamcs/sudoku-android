@@ -22,9 +22,7 @@ internal class SettingsScreen(private val context: Context, private val ui: Ui) 
         setMode: (AppearanceMode) -> Unit,
         openPalette: () -> Unit,
         selectTimeout: () -> Unit,
-        openGuide: () -> Unit,
-        openFeedback: () -> Unit,
-        openAbout: () -> Unit,
+        selectKeypad: () -> Unit,
     ) {
         ui.add(page, ui.pageHeading("Settings", back))
         val looks = section("Appearance", R.drawable.ic_palette)
@@ -43,38 +41,25 @@ internal class SettingsScreen(private val context: Context, private val ui: Ui) 
         ui.add(page, looks, 8)
 
         val gameplay = section("Gameplay", R.drawable.ic_gamepad)
-        val timeout = settingRow("Screen Timeout", R.drawable.ic_screen_timeout, "(for dimming)")
         val timeoutLabel = if (appearance.screenTimeout == ScreenTimeout.SYSTEM) "Use System" else appearance.screenTimeout.label
-        timeout.addView(ui.button(timeoutLabel, onClick = selectTimeout).apply {
-            letterSpacing = 0f
-            textSize = 12f
-            setCompoundDrawablesRelative(null, null, ui.icon(R.drawable.ic_chevron_down, 15), null)
-            compoundDrawablePadding = ui.dp(5)
-            background = ui.dashboardPress(ui.dashboardSurface(10))
-            maxWidth = ui.dp(148)
-            contentDescription = "Screen Timeout, $timeoutLabel"
-        }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
-        ui.add(gameplay, timeout)
+        ui.add(gameplay, dropdown("Screen Timeout", timeoutLabel, R.drawable.ic_screen_timeout, "(for dimming)", selectTimeout))
+        ui.add(gameplay, dropdown("Number Keypad Layout", appearance.keypadLayout.label, R.drawable.ic_auto_notes,
+            onClick = selectKeypad))
         ui.add(page, gameplay, 12)
-
-        val learn = section("Learn", R.drawable.ic_guide)
-        val guide = settingRow("How to Play", R.drawable.ic_guide, "Rules and solving strategies")
-        addChevron(guide)
-        makeAction(guide, "How to Play", openGuide)
-        ui.add(learn, guide)
-        ui.add(page, learn, 12)
-
-        val about = section("About", R.drawable.ic_info)
-        val feedback = settingRow("Send Feedback", R.drawable.ic_feedback, "Share suggestions, report issues, or ask questions")
-        addChevron(feedback)
-        makeAction(feedback, "Send Feedback", openFeedback)
-        ui.add(about, feedback)
-        val details = settingRow("About", R.drawable.ic_info, "App version and open-source licenses")
-        addChevron(details)
-        makeAction(details, "About Sudoku", openAbout)
-        ui.add(about, details)
-        ui.add(page, about, 12)
     }
+
+    private fun dropdown(label: String, value: String, @DrawableRes icon: Int, subtitle: String? = null, onClick: () -> Unit) =
+        settingRow(label, icon, subtitle).apply {
+            addView(ui.button(value, onClick = onClick).apply {
+                letterSpacing = 0f
+                textSize = 12f
+                setCompoundDrawablesRelative(null, null, ui.icon(R.drawable.ic_chevron_down, 15), null)
+                compoundDrawablePadding = ui.dp(5)
+                background = ui.dashboardPress(ui.dashboardSurface(10))
+                maxWidth = ui.dp(148)
+                contentDescription = "$label, $value"
+            }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        }
 
     fun about(page: LinearLayout, back: () -> Unit, licenses: () -> Unit) {
         ui.add(page, ui.pageHeading("About", back))

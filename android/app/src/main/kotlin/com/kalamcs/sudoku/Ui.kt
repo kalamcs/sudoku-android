@@ -7,6 +7,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
 import android.graphics.drawable.RippleDrawable
+import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -14,8 +15,11 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
+import android.widget.ArrayAdapter
+import android.widget.CheckedTextView
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.EditText
 import android.widget.TextView
 import androidx.annotation.DrawableRes
 import androidx.appcompat.app.AlertDialog
@@ -105,12 +109,14 @@ internal class Ui(private val context: Context) {
 
     fun gameAction(content: String, @DrawableRes icon: Int, shortcut: Boolean = false, onClick: () -> Unit) =
         button(content, onClick = onClick).apply {
+            minHeight = dp(44)
+            minimumHeight = dp(44)
             textSize = 12f
             letterSpacing = 0f
             includeFontPadding = false
-            setPadding(dp(2), dp(5), dp(2), dp(5))
-            setCompoundDrawablesRelative(null, this@Ui.icon(icon, if (shortcut) 21 else 23), null, null)
-            compoundDrawablePadding = dp(4)
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+            setCompoundDrawablesRelative(null, this@Ui.icon(icon, if (shortcut) 21 else 22), null, null)
+            compoundDrawablePadding = dp(3)
             styleGameAction(this, shortcut = shortcut)
         }
 
@@ -145,9 +151,14 @@ internal class Ui(private val context: Context) {
     }
 
     fun styleGameAction(button: AppCompatButton, selected: Boolean = false, shortcut: Boolean = false) {
-        styleButton(button, if (selected) palette.matchingCell else palette.toolbarSurface,
+        styleButton(button, when {
+            selected -> palette.matchingCell
+            shortcut -> palette.toolbarSurface
+            else -> palette.surface
+        },
             if (selected) palette.accentInk else palette.ink,
             if (selected || shortcut) 0 else palette.border, radius = 10)
+        if (shortcut) button.background = menuSelector()
     }
 
     fun styleDigit(button: AppCompatButton, selected: Boolean, completed: Boolean) {
@@ -234,11 +245,59 @@ internal class Ui(private val context: Context) {
         dialog.window?.setBackgroundDrawable(InsetDrawable(shape(palette.surface, palette.cardRadius), dp(8)))
         dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)?.setTextColor(palette.ink)
         dialog.findViewById<TextView>(android.R.id.message)?.setTextColor(palette.ink)
+        dialog.listView?.selector = menuSelector()
         for (button in listOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL)) {
             dialog.getButton(button)?.apply {
                 isAllCaps = false
                 setTextColor(palette.accentInk)
+                background = menuSelector()
             }
+        }
+    }
+
+    fun menuSelector() = RippleDrawable(
+        ColorStateList.valueOf((palette.accent and 0x00ffffff) or 0x27000000),
+        null, shape(palette.surface, 8),
+    )
+
+    fun menuItems(labels: List<String>, current: Int) =
+        object : ArrayAdapter<String>(context, android.R.layout.simple_list_item_1, labels) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val selected = position == current
+                return (convertView as? TextView ?: text("", 15)).apply {
+                    text = labels[position]
+                    setTextColor(if (selected) palette.accentInk else palette.ink)
+                    setTypeface(typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
+                    isSelected = selected
+                    ViewCompat.setStateDescription(this, if (selected) "Current destination" else null)
+                    minimumHeight = dp(44)
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), dp(6), dp(14), dp(6))
+                    background = if (selected) shape(palette.selectedCell, 8) else null
+                }
+            }
+        }
+
+    fun choiceItems(labels: List<String>) = object : ArrayAdapter<String>(
+        context, android.R.layout.select_dialog_singlechoice, labels,
+    ) {
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
+            (super.getView(position, convertView, parent) as CheckedTextView).apply {
+                setTextColor(palette.ink)
+                checkMarkTintList = ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(palette.accentInk, palette.muted),
+                )
+            }
+    }
+
+    fun tintTextInput(input: EditText) {
+        input.highlightColor = palette.selectedCell
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            input.textCursorDrawable = input.textCursorDrawable?.mutate()?.apply { setTint(palette.accentInk) }
+            input.textSelectHandle?.mutate()?.apply { setTint(palette.accentInk) }?.let(input::setTextSelectHandle)
+            input.textSelectHandleLeft?.mutate()?.apply { setTint(palette.accentInk) }?.let(input::setTextSelectHandleLeft)
+            input.textSelectHandleRight?.mutate()?.apply { setTint(palette.accentInk) }?.let(input::setTextSelectHandleRight)
         }
     }
 

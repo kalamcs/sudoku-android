@@ -12,7 +12,17 @@ class AppearanceTest {
         assertEquals(GameTheme.OCEAN, settings.theme)
         assertEquals(AppearanceMode.LIGHT, settings.mode)
         assertFalse(settings.palette(systemDark = true).dark)
+        assertEquals(KeypadLayout.AUTO, settings.keypadLayout)
         assertEquals(settings, AppearanceSettings.fromKeys("unknown", "unknown"))
+    }
+
+    @Test fun keypadSettingMigratesIndependentlyOfAppearanceAndScreenTimeout() {
+        val appearance = AppearanceSettings(AppearanceMode.DARK, GameTheme.ROSE, ScreenTimeout.THREE_MINUTES)
+        assertEquals(appearance, AppearanceSettings.fromKeys("dark", "rose", "three_minutes", "unknown"))
+        for (layout in KeypadLayout.entries) {
+            assertEquals(appearance.copy(keypadLayout = layout),
+                AppearanceSettings.fromKeys("dark", "rose", "three_minutes", layout.key))
+        }
     }
 
     @Test fun systemModeFollowsDeviceAndDarkOverrideIsIndependent() {
@@ -47,6 +57,8 @@ class AppearanceTest {
                 assertTrue("$label error notes", colorContrast(palette.error, palette.errorSurface) >= 4.5)
                 assertTrue("$label active control", colorContrast(palette.accentInk, palette.selectedCell) >= 4.5)
                 assertTrue("$label entered digit", colorContrast(palette.accentInk, palette.relatedCell) >= 4.5)
+                assertTrue("$label technique title", colorContrast(palette.accentInk, palette.toolbarSurface) >= 4.5)
+                assertTrue("$label feedback success", colorContrast(palette.successInk, palette.successSurface) >= 4.5)
             }
         }
     }

@@ -1,8 +1,11 @@
 package com.kalamcs.sudoku
 
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.drawable.ColorDrawable
 import android.os.SystemClock
+import android.util.TypedValue
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
@@ -25,6 +28,7 @@ import androidx.test.espresso.action.ViewActions.replaceText
 import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.RootMatchers.isPlatformPopup
 import androidx.test.espresso.matcher.ViewMatchers.hasErrorText
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
@@ -49,6 +53,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.math.roundToInt
 
 @RunWith(AndroidJUnit4::class)
 class NativeGameTest {
@@ -78,11 +83,13 @@ class NativeGameTest {
             onView(withText("Continue Puzzle")).perform(click())
             onView(withText("3")).perform(scrollTo(), click())
             onView(withContentDescription("Game menu")).perform(scrollTo(), click())
+            onView(withText("New game")).inRoot(isPlatformPopup()).check(doesNotExist())
             val paused = displayedTime(scenario)
             SystemClock.sleep(1_500)
             assertEquals(paused, displayedTime(scenario))
 
-            onView(withText("Check for errors")).perform(click())
+            pressBack()
+            onView(withText("Check\nProgress")).perform(scrollTo(), click())
             onView(withText("1 incorrect entry")).check(matches(isDisplayed()))
             val checking = displayedTime(scenario)
             SystemClock.sleep(1_500)
@@ -90,14 +97,12 @@ class NativeGameTest {
             onView(withText("Close")).perform(click())
             assertCellDescription(1, "Row 1, column 2, 3")
 
-            onView(withContentDescription("Game menu")).perform(scrollTo(), click())
-            onView(withText("Check for errors")).perform(click())
+            onView(withText("Check\nProgress")).perform(scrollTo(), click())
             onView(withText("Highlight")).perform(click())
             assertCellDescription(1, "Row 1, column 2, 3, incorrect")
 
             onView(withText("Erase")).perform(scrollTo(), click())
-            onView(withContentDescription("Game menu")).perform(scrollTo(), click())
-            onView(withText("Check for errors")).perform(click())
+            onView(withText("Check\nProgress")).perform(scrollTo(), click())
             onView(withText("There are no incorrect entries so far.")).check(matches(isDisplayed()))
             onView(withText("Highlight")).check(doesNotExist())
         }
@@ -118,8 +123,7 @@ class NativeGameTest {
             val recorded = store.records().getValue(Difficulty.EASY)
             assertEquals(before + 1, recorded.wins)
 
-            onView(withContentDescription("Game menu")).perform(scrollTo(), click())
-            onView(withText("Replay puzzle")).perform(click())
+            onView(withText("Replay\nPuzzle")).perform(scrollTo(), click())
             onView(withText("Replay")).perform(click())
             onView(withText(solution[0].toString())).perform(scrollTo(), click())
             onView(withText("Puzzle solved")).check(matches(isDisplayed()))
@@ -150,7 +154,7 @@ class NativeGameTest {
         }
     }
 
-    @Test fun solvingScreenFitsPhonePortraitsAndUsesTwoPanesInLandscape() {
+    @Test fun autoFitsEightPhoneViewportsAfterSystemInsets() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
             onView(withText("Continue Puzzle")).perform(click())
@@ -168,29 +172,89 @@ class NativeGameTest {
                         .filterIsInstance<TextView>().map { it.text.toString() })
 
                 val density = activity.resources.displayMetrics.density
+                fun dp(value: Int) = (value * density).roundToInt()
                 val originalWidth = layout.width
                 val originalHeight = layout.height
-                for ((widthDp, heightDp) in listOf(320 to 568, 360 to 640, 390 to 844, 430 to 932, 780 to 360)) {
-                    val width = (widthDp * density).toInt()
-                    val height = ((heightDp - 72) * density).toInt()
-                    layout.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
-                    layout.layout(0, 0, width, height)
+                val interactive = contents.filterIsInstance<AppCompatButton>()
+                for ((widthDp, heightDp) in listOf(320 to 568, 360 to 640, 393 to 852, 430 to 932,
+                    568 to 320, 640 to 360, 852 to 393, 932 to 430, 700 to 1200, 430 to 640)) {
+                    val landscape = widthDp > heightDp
+                    val width = dp(widthDp - if (landscape) 48 else 0)
+                    val height = dp(heightDp - if (landscape) 24 else 72)
+                    measureViewport(layout, width, height)
+                    val viewport = "${widthDp}×$heightDp"
                     assertEquals(board.width, board.height)
-                    if (widthDp > 320) assertFalse("${widthDp}×$heightDp requires scrolling (content ${layout.getChildAt(0).height}px, " +
+                    assertFalse("$viewport requires scrolling (content ${layout.getChildAt(0).height}px, " +
                         "viewport ${layout.height}px, board ${board.height}px)", layout.canScrollVertically(1))
-                    val keypadRow = text.single { it.text == "1" }.parent as ViewGroup
-                    assertEquals(if (widthDp <= 360) 3 else 9, keypadRow.childCount)
-                    val controls = toolbar.parent as View
-                    if (widthDp > heightDp) assertTrue("Landscape board edge ${board.right}px, tools start ${controls.left}px",
-                        board.right < controls.left)
+                    assertEquals(landscape, layout.sideBySide)
+                    if (landscape) {
+                        assertTrue("$viewport must keep the board and controls separate", board.right < toolbar.left)
+                        assertEquals("$viewport should give the board all body height", height - dp(44) - 2 * dp(4), board.height)
+                    } else if (heightDp >= 852) {
+                        assertEquals("$viewport should use the entire width between side margins", width - 2 * dp(8), board.width)
+                    }
+                    if (widthDp == 430 && heightDp == 640) assertEquals(9, layout.keypadColumns)
+                    if (widthDp == 393 || heightDp >= 852 && !landscape) assertEquals(3, layout.keypadColumns)
+                    val digits = interactive.filter { it.text.toString().matches(Regex("[1-9]")) }
+                    assertTrue("$viewport keypad touch targets", digits.all { it.width >= dp(44) && it.height >= dp(44) })
+                    val origin = IntArray(2).apply(layout::getLocationOnScreen)
+                    for (button in interactive) {
+                        val at = IntArray(2).apply(button::getLocationOnScreen)
+                        assertTrue("$viewport clips ${button.text}", at[0] >= origin[0] && at[1] >= origin[1] &&
+                            at[0] + button.width <= origin[0] + width && at[1] + button.height <= origin[1] + height)
+                    }
                 }
-                layout.measure(View.MeasureSpec.makeMeasureSpec(originalWidth, View.MeasureSpec.EXACTLY),
-                    View.MeasureSpec.makeMeasureSpec(originalHeight, View.MeasureSpec.EXACTLY))
-                layout.layout(0, 0, originalWidth, originalHeight)
+                val originalSizes = text.associateWith { it.textSize }
+                text.forEach { it.setTextSize(TypedValue.COMPLEX_UNIT_PX, it.textSize * 1.3f) }
+                measureViewport(layout, dp(393), dp(780))
+                assertFalse("Large font clips typical portrait controls", layout.canScrollVertically(1))
+                assertEquals(dp(393) - 2 * dp(8), board.width)
+                originalSizes.forEach { (view, size) -> view.setTextSize(TypedValue.COMPLEX_UNIT_PX, size) }
+                measureViewport(layout, originalWidth, originalHeight)
             }
             onView(withContentDescription("Back to home")).perform(click())
             onView(withText("Continue Puzzle")).check(matches(isDisplayed()))
+        }
+    }
+
+    private fun measureViewport(layout: SolvingLayout, width: Int, height: Int) {
+        layout.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+        layout.layout(layout.left, layout.top, layout.left + width, layout.top + height)
+    }
+
+    @Test fun keypadPreferencePersistsAndFallsBackWhenARowCannotFit() {
+        installFixture()
+        val preferences = AppearanceStore(InstrumentationRegistry.getInstrumentation().targetContext)
+        val initial = preferences.load()
+        preferences.save(initial.copy(keypadLayout = KeypadLayout.AUTO))
+        try {
+            ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
+                onView(withText("Continue Puzzle")).perform(click())
+                for ((choice, columns) in listOf(KeypadLayout.ROW to 9, KeypadLayout.GRID to 3, KeypadLayout.AUTO to 3)) {
+                    openMenuDestination("Game menu", "Settings")
+                    val value = preferences.load().keypadLayout.label
+                    onView(withContentDescription("Number Keypad Layout, $value")).perform(scrollTo(), click())
+                    onView(withText(choice.label)).perform(click())
+                    scenario.recreate()
+                    onView(withContentDescription("Number Keypad Layout, ${choice.label}")).check(matches(isDisplayed()))
+                    onView(withContentDescription("Back")).perform(click())
+                    assertEquals(choice, preferences.load().keypadLayout)
+                    scenario.onActivity { activity ->
+                        val solver = activity.findViewById<SolvingLayout>(R.id.page_scroll)
+                        val (width, height) = solver.width to solver.height
+                        val density = activity.resources.displayMetrics.density
+                        measureViewport(solver, (430 * density).roundToInt(), (860 * density).roundToInt())
+                        assertEquals(columns, solver.keypadColumns)
+                        measureViewport(solver, (320 * density).roundToInt(), (496 * density).roundToInt())
+                        assertEquals(3, solver.keypadColumns)
+                        assertFalse(solver.canScrollVertically(1))
+                        measureViewport(solver, width, height)
+                    }
+                }
+            }
+        } finally {
+            preferences.save(initial)
         }
     }
 
@@ -318,8 +382,7 @@ class NativeGameTest {
         installFixture()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         ActivityScenario.launch(SudokuActivity::class.java).use {
-            onView(withText("Settings")).perform(scrollTo(), click())
-            onView(withContentDescription("Send Feedback")).perform(scrollTo(), click())
+            openMenuDestination("Home menu", "Send Feedback")
             val send = onView(allOf(withText("Send Feedback"), isAssignableFrom(AppCompatButton::class.java)))
             val feedback = onView(withHint("Tell us what you think…"))
             val email = onView(withHint("Your email address"))
@@ -347,8 +410,8 @@ class NativeGameTest {
     @Test fun aboutShowsTheAppVersionAndPackagedLicenses() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
-            onView(withText("Settings")).perform(scrollTo(), click())
-            onView(withContentDescription("About Sudoku")).perform(scrollTo(), click())
+            onView(withText("Continue Puzzle")).perform(click())
+            openMenuDestination("Game menu", "About")
             onView(withText("Version ${BuildConfig.VERSION_NAME}")).check(matches(isDisplayed()))
             onView(withContentDescription("Open-source licenses")).perform(click())
             val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -358,6 +421,8 @@ class NativeGameTest {
                 assertTrue(resumed.any { it is OssLicensesMenuActivity })
             }
             pressBack()
+            onView(withContentDescription("Back")).perform(click())
+            onView(withContentDescription("Difficulty Extreme")).check(matches(isDisplayed()))
         }
     }
 
@@ -420,8 +485,7 @@ class NativeGameTest {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
             onView(withText("Continue Puzzle")).perform(click())
-            onView(withContentDescription("Game menu")).perform(click())
-            onView(withText("Auto notes")).perform(click())
+            onView(withText("Auto-fill\nCandidates")).perform(scrollTo(), click())
             val board = onView(isAssignableFrom(BoardView::class.java))
             board.perform(scrollTo(), tapFirstCell())
             onView(withText("3")).perform(scrollTo(), click()).check { view, error ->
@@ -459,8 +523,7 @@ class NativeGameTest {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
             onView(withText("Continue Puzzle")).perform(click())
-            onView(withContentDescription("Game menu")).perform(click())
-            onView(withText("How to play")).perform(click())
+            openMenuDestination("Game menu", "How to Play")
             onView(withText("Rules")).check(matches(isSelected()))
             onView(withText("Sudoku Rules")).check(matches(isDisplayed()))
             onView(withText("Advanced solving techniques")).check(doesNotExist())
@@ -484,11 +547,19 @@ class NativeGameTest {
         }
     }
 
-    @Test fun howToPlayCanReturnToSettings() {
+    @Test fun homeMenuHighlightsTheCurrentDestinationAndGuideReturnsHome() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
-            onView(withText("Settings")).perform(scrollTo(), click())
-            onView(withContentDescription("How to Play")).perform(scrollTo(), click())
+            onView(withContentDescription("Home menu")).perform(scrollTo(), click())
+            onView(withText("Home")).inRoot(isPlatformPopup()).check { view, error ->
+                if (error != null) throw error
+                assertEquals("Current destination", ViewCompat.getStateDescription(view).toString())
+                val list = view.parent as ViewGroup
+                assertEquals(listOf("Home", "How to Play", "Settings", "Send Feedback", "About"),
+                    (0 until list.childCount).map { (list.getChildAt(it) as TextView).text.toString() })
+            }
+            pressBack()
+            openMenuDestination("Home menu", "How to Play")
             onView(withText("Rules")).check(matches(isSelected()))
             onView(withId(R.id.page_content)).check { view, error ->
                 if (error != null) throw error
@@ -498,7 +569,44 @@ class NativeGameTest {
             scenario.recreate()
             onView(withText("Strategies")).check(matches(isSelected()))
             pressBack()
-            onView(withText("Appearance")).check(matches(isDisplayed()))
+            onView(withText("Continue Puzzle")).check(matches(isDisplayed()))
+        }
+    }
+
+    private fun openMenuDestination(menu: String, destination: String) {
+        onView(withContentDescription(menu)).perform(scrollTo(), click())
+        onView(withText(destination)).inRoot(isPlatformPopup()).perform(click())
+    }
+
+    @Test fun strategiesAndWorkedBoardsUseAllTwelvePalettes() {
+        ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val ui = Ui(activity)
+                val guide = GuideScreen(activity, ui)
+                val technique = Technique.NAKED_SINGLE
+                for (theme in GameTheme.entries) for (dark in listOf(false, true)) {
+                    val palette = theme.palette(dark)
+                    ui.palette = palette
+                    val directory = ui.column()
+                    guide.strategies(directory) {}
+                    val title = TreeIterables.depthFirstViewTraversal(directory).filterIsInstance<TextView>()
+                        .single { it.text == technique.title }
+                    assertEquals(palette.accentInk, title.currentTextColor)
+
+                    val detail = ui.column()
+                    guide.lesson(detail, technique)
+                    val board = TreeIterables.depthFirstViewTraversal(detail).filterIsInstance<BoardView>().single()
+                    val side = 180
+                    val spec = View.MeasureSpec.makeMeasureSpec(side, View.MeasureSpec.EXACTLY)
+                    board.measure(spec, spec)
+                    board.layout(0, 0, side, side)
+                    val image = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+                    board.draw(Canvas(image))
+                    // In this lesson r5c5 is the focus and r5c4 is in the related group.
+                    assertEquals(palette.selectedCell, image.getPixel(85, 85))
+                    assertEquals(palette.relatedCell, image.getPixel(65, 85))
+                }
+            }
         }
     }
 

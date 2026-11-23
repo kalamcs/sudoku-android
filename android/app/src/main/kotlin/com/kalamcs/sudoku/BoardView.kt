@@ -343,8 +343,8 @@ internal class BoardView(
                 paint.color = when {
                     incorrect || conflicting -> palette.error
                     matching -> palette.accentInk
-                    isGiven -> palette.ink
-                    else -> palette.accentInk
+                    isGiven -> palette.givenDigit
+                    else -> palette.enteredDigit
                 }
                 numeral(canvas, value, x + step / 2, y + step / 2, step * .58f, if (isGiven) bold else regular)
             } else if (notes[cell] != 0) {
@@ -352,7 +352,7 @@ internal class BoardView(
                 val noteColor = when {
                     crossed -> palette.error
                     selected || focus -> palette.ink
-                    else -> palette.muted
+                    else -> palette.pencilMark
                 }
                 for (digit in 1..9) {
                     if (notes[cell] and Sudoku.bit(digit) == 0) continue

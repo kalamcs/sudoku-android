@@ -24,18 +24,26 @@ internal enum class ScreenTimeout(val key: String, val label: String, val holdMi
     WHILE_PLAYING("while_playing", "Keep on while playing");
 }
 
+internal enum class KeypadLayout(val key: String, val label: String) {
+    AUTO("auto", "Auto"),
+    GRID("grid", "3×3"),
+    ROW("row", "1×9"),
+}
+
 internal data class AppearanceSettings(
     val mode: AppearanceMode = AppearanceMode.LIGHT,
     val theme: GameTheme = GameTheme.OCEAN,
     val screenTimeout: ScreenTimeout = ScreenTimeout.SYSTEM,
+    val keypadLayout: KeypadLayout = KeypadLayout.AUTO,
 ) {
     fun palette(systemDark: Boolean) = theme.palette(mode.isDark(systemDark))
 
     companion object {
-        fun fromKeys(mode: String?, theme: String?, screenTimeout: String? = null) = AppearanceSettings(
+        fun fromKeys(mode: String?, theme: String?, screenTimeout: String? = null, keypadLayout: String? = null) = AppearanceSettings(
             mode = AppearanceMode.entries.firstOrNull { it.key == mode } ?: AppearanceMode.LIGHT,
             theme = GameTheme.entries.firstOrNull { it.key == theme } ?: GameTheme.OCEAN,
             screenTimeout = ScreenTimeout.entries.firstOrNull { it.key == screenTimeout } ?: ScreenTimeout.SYSTEM,
+            keypadLayout = KeypadLayout.entries.firstOrNull { it.key == keypadLayout } ?: KeypadLayout.AUTO,
         )
     }
 }
@@ -47,6 +55,7 @@ internal class AppearanceStore(context: Context) {
         preferences.getString("mode", null),
         preferences.getString("theme", null),
         preferences.getString("screenTimeout", null),
+        preferences.getString("keypadLayout", null),
     )
 
     fun save(settings: AppearanceSettings) {
@@ -54,6 +63,7 @@ internal class AppearanceStore(context: Context) {
             .putString("mode", settings.mode.key)
             .putString("theme", settings.theme.key)
             .putString("screenTimeout", settings.screenTimeout.key)
+            .putString("keypadLayout", settings.keypadLayout.key)
             .apply()
     }
 }
@@ -99,12 +109,24 @@ internal class GamePalette(
     val accentInk = (0..10).map { blend(accent, ink, it / 10f) }.first { color ->
         listOf(page, surface, relatedCell, selectedCell, matchingCell).all { colorContrast(color, it) >= 4.5 }
     }
+    val givenDigit = ink
+    val enteredDigit = accentInk
+    val pencilMark = muted
     val noteMarker = blend(relatedCell, accent, if (dark) .24f else .32f)
     val completedKey = blend(surface, ink, if (dark) .17f else .13f)
     val error = opaque(if (dark) 0xffa6b4 else 0xa12241)
     val errorSurface = blend(surface, error, if (dark) .16f else .1f)
+    val successSurface = opaque(if (dark) 0x244c3b else 0xddf3e5)
+    val successInk = opaque(if (dark) 0x9ae7bd else 0x20583f)
     val gridLine = blend(surface, ink, if (dark) .28f else .26f)
     val boxBorder = blend(surface, ink, .89f)
+
+    fun difficultyAccent(difficulty: Difficulty) = opaque(when (difficulty) {
+        Difficulty.EASY -> if (dark) 0x52dac1 else 0x22b9a0
+        Difficulty.MEDIUM -> if (dark) 0x65b4ff else 0x258cf0
+        Difficulty.HARD -> if (dark) 0xb289ff else 0x8956eb
+        Difficulty.EXTREME -> if (dark) 0xff89b8 else 0xe4508c
+    })
 }
 
 private fun colors(dark: Boolean, page: Int, board: Int, accent: Int, related: Int, ink: Int) =
