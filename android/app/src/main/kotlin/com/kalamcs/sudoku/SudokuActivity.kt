@@ -1,7 +1,6 @@
 package com.kalamcs.sudoku
 
 import android.content.Context
-import android.content.Intent
 import android.content.res.Configuration
 import android.content.res.ColorStateList
 import android.graphics.drawable.ColorDrawable
@@ -35,7 +34,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
-import com.google.android.gms.oss.licenses.OssLicensesMenuActivity
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -510,7 +508,6 @@ class SudokuActivity : AppCompatActivity() {
         }
         board = view
 
-        val header = FrameLayout(this).apply { setBackgroundColor(ui.palette.toolbarSurface) }
         val back = ui.iconButton("Back to home", R.drawable.ic_back, quiet = true, onClick = ::showHome)
         val resetZoom = ui.iconButton("Reset zoom", R.drawable.ic_reset_zoom, quiet = true, onClick = view::resetZoom)
             .apply { visibility = View.GONE }
@@ -519,16 +516,29 @@ class SudokuActivity : AppCompatActivity() {
         fun navigation(vararg buttons: View) = ui.row().apply {
             for (button in buttons) addView(button, LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
         }
-        header.addView(ui.heading("Sudoku", 22).apply {
+        val title = ui.heading("Sudoku", 22).apply {
             gravity = Gravity.CENTER
             setSingleLine()
             ellipsize = TextUtils.TruncateAt.END
-        }, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.CENTER).apply {
-            leftMargin = ui.dp(88)
-            rightMargin = ui.dp(88)
-        })
-        header.addView(navigation(back, resetZoom), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.START))
-        header.addView(navigation(pause, menu), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.END))
+        }
+        val header = object : FrameLayout(this) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val leading = ui.dp(if (resetZoom.visibility == View.VISIBLE) 88 else 44)
+                val trailing = ui.dp(88)
+                val centerTitle = MeasureSpec.getSize(widthMeasureSpec) - 2 * trailing >=
+                    title.paint.measureText(title.text.toString()) + ui.dp(4)
+                (title.layoutParams as FrameLayout.LayoutParams).apply {
+                    leftMargin = if (centerTitle) trailing else leading
+                    rightMargin = trailing
+                }
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            }
+        }.apply {
+            setBackgroundColor(ui.palette.toolbarSurface)
+            addView(title, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.START or Gravity.CENTER_VERTICAL))
+            addView(navigation(back, resetZoom), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.START))
+            addView(navigation(pause, menu), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.END))
+        }
         view.onZoomChanged = { zoomed -> resetZoom.visibility = if (zoomed) View.VISIBLE else View.GONE }
 
         val status = ui.row().apply {
@@ -807,9 +817,7 @@ class SudokuActivity : AppCompatActivity() {
 
     private fun renderAbout() {
         screen = Screen.ABOUT
-        settings.about(page(), ::leaveAbout) {
-            startActivity(Intent(this, OssLicensesMenuActivity::class.java))
-        }
+        settings.about(page(), ::leaveAbout)
     }
 
     private fun leaveAbout() = returnTo(aboutOrigin)

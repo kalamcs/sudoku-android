@@ -2,6 +2,9 @@ package com.kalamcs.sudoku
 
 internal data class PrunedNotes(val cell: Int, val peers: List<Int>)
 
+internal data class BoardSnapshot(val values: IntArray, val notes: IntArray, val prunedNotes: PrunedNotes?)
+internal data class EditHistory(val undo: List<BoardSnapshot> = emptyList(), val redo: List<BoardSnapshot> = emptyList())
+
 internal class Game(
     val puzzle: Puzzle,
     values: IntArray = puzzle.givens.copyOf(),
@@ -11,9 +14,8 @@ internal class Game(
     var selected: Int = values.indexOfFirst { it == 0 }.coerceAtLeast(0),
     prunedNotes: PrunedNotes? = null,
     recordedWin: Boolean = false,
+    history: EditHistory = EditHistory(),
 ) {
-    private data class Snapshot(val values: IntArray, val notes: IntArray, val prunedNotes: PrunedNotes?)
-
     var values = values
         private set
     var notes = notes
@@ -31,8 +33,8 @@ internal class Game(
     var markedErrors = emptySet<Int>()
         private set
     private var startedAt: Long? = null
-    private val undo = ArrayDeque<Snapshot>()
-    private val redo = ArrayDeque<Snapshot>()
+    private val undo = ArrayDeque(history.undo)
+    private val redo = ArrayDeque(history.redo)
     val conflicts = BooleanArray(Sudoku.COUNT)
     val counts = IntArray(10)
     val canUndo get() = undo.isNotEmpty() && !paused && !finished
@@ -109,7 +111,9 @@ internal class Game(
         if (affected.isNotEmpty()) prunedNotes = PrunedNotes(cell, affected)
     }
 
-    private fun snapshot() = Snapshot(values.copyOf(), notes.copyOf(), prunedNotes)
+    fun editHistory() = EditHistory(undo.toList(), redo.toList())
+
+    private fun snapshot() = BoardSnapshot(values.copyOf(), notes.copyOf(), prunedNotes)
 
     private fun edit() {
         undo.addLast(snapshot())
@@ -121,7 +125,7 @@ internal class Game(
     fun undo(): Boolean = restoreHistory(undo, redo, canUndo)
     fun redo(): Boolean = restoreHistory(redo, undo, canRedo)
 
-    private fun restoreHistory(from: ArrayDeque<Snapshot>, to: ArrayDeque<Snapshot>, allowed: Boolean): Boolean {
+    private fun restoreHistory(from: ArrayDeque<BoardSnapshot>, to: ArrayDeque<BoardSnapshot>, allowed: Boolean): Boolean {
         if (!allowed) return false
         to.addLast(snapshot())
         val previous = from.removeLast()

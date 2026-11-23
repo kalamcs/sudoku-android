@@ -61,14 +61,13 @@ internal class SettingsScreen(private val context: Context, private val ui: Ui) 
             }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
         }
 
-    fun about(page: LinearLayout, back: () -> Unit, licenses: () -> Unit) {
+    fun about(page: LinearLayout, back: () -> Unit) {
         ui.add(page, ui.pageHeading("About", back))
         val app = section("Sudoku", R.drawable.ic_auto_notes)
         ui.add(app, settingRow("Version ${BuildConfig.VERSION_NAME}", R.drawable.ic_info))
-        val notices = settingRow("Open-source licenses", R.drawable.ic_guide)
-        addChevron(notices)
-        makeAction(notices, "Open-source licenses", licenses)
-        ui.add(app, notices)
+        ui.add(app, ui.text("Copyright (c) 2026 Kalam Shah", 14, ui.palette.muted).apply {
+            setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(14))
+        })
         ui.add(page, app, 8)
     }
 

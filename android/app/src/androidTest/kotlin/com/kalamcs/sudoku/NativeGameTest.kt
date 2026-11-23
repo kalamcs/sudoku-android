@@ -41,9 +41,6 @@ import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.espresso.util.TreeIterables
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
-import androidx.test.runner.lifecycle.Stage
-import com.google.android.gms.oss.licenses.OssLicensesMenuActivity
 import com.google.firebase.FirebaseApp
 import org.hamcrest.Matcher
 import org.hamcrest.Matchers.allOf
@@ -140,6 +137,30 @@ class NativeGameTest {
         }
     }
 
+    @Test fun undoAndRedoSurviveClosingAndContinuingThePuzzle() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Continue Puzzle")).perform(click())
+            onView(withText("3")).perform(scrollTo(), click())
+            onView(withText("5")).perform(scrollTo(), click())
+            onView(withText("Undo")).perform(scrollTo(), click())
+            assertCellDescription(1, "Row 1, column 2, 3")
+            onView(withContentDescription("Back to home")).perform(click())
+        }
+
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Continue Puzzle")).perform(click())
+            assertCellDescription(1, "Row 1, column 2, 3")
+            onView(withText("Redo")).perform(scrollTo(), click())
+            assertCellDescription(1, "Row 1, column 2, 5")
+            onView(withText("Undo")).perform(scrollTo(), click())
+            assertCellDescription(1, "Row 1, column 2, 3")
+            onView(withText("Undo")).perform(scrollTo(), click())
+            assertCellDescription(1, "Row 1, column 2, empty")
+            onView(withText("Undo")).check(matches(not(isEnabled())))
+        }
+    }
+
     @Test fun boardFitsAHeightConstrainedParent() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
@@ -176,6 +197,7 @@ class NativeGameTest {
                 val originalWidth = layout.width
                 val originalHeight = layout.height
                 val interactive = contents.filterIsInstance<AppCompatButton>()
+                val header = (contents.single { it.contentDescription == "Back to home" }.parent as View).parent as View
                 for ((widthDp, heightDp) in listOf(320 to 568, 360 to 640, 393 to 852, 430 to 932,
                     568 to 320, 640 to 360, 852 to 393, 932 to 430, 700 to 1200, 430 to 640)) {
                     val landscape = widthDp > heightDp
@@ -189,7 +211,11 @@ class NativeGameTest {
                     assertEquals(landscape, layout.sideBySide)
                     if (landscape) {
                         assertTrue("$viewport must keep the board and controls separate", board.right < toolbar.left)
-                        assertEquals("$viewport should give the board all body height", height - dp(44) - 2 * dp(4), board.height)
+                        val minPanel = 5 * dp(44) + 4 * dp(4)
+                        val largestBoard = minOf(height - 2 * dp(4), width - 2 * dp(8) - dp(10) - minPanel)
+                        assertEquals("$viewport should maximize board height", largestBoard, board.height)
+                        assertEquals("$viewport should align the header and board", board.top, header.top)
+                        assertTrue("$viewport should place navigation in the right pane", header.left > board.right)
                     } else if (heightDp >= 852) {
                         assertEquals("$viewport should use the entire width between side margins", width - 2 * dp(8), board.width)
                     }
@@ -407,20 +433,14 @@ class NativeGameTest {
         }
     }
 
-    @Test fun aboutShowsTheAppVersionAndPackagedLicenses() {
+    @Test fun aboutShowsVersionAndCopyrightDirectly() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
             onView(withText("Continue Puzzle")).perform(click())
             openMenuDestination("Game menu", "About")
             onView(withText("Version ${BuildConfig.VERSION_NAME}")).check(matches(isDisplayed()))
-            onView(withContentDescription("Open-source licenses")).perform(click())
-            val instrumentation = InstrumentationRegistry.getInstrumentation()
-            instrumentation.waitForIdleSync()
-            instrumentation.runOnMainSync {
-                val resumed = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
-                assertTrue(resumed.any { it is OssLicensesMenuActivity })
-            }
-            pressBack()
+            onView(withText("Copyright (c) 2026 Kalam Shah")).check(matches(isDisplayed()))
+            onView(withContentDescription("Open-source licenses")).check(doesNotExist())
             onView(withContentDescription("Back")).perform(click())
             onView(withContentDescription("Difficulty Extreme")).check(matches(isDisplayed()))
         }

@@ -46,7 +46,6 @@ dependencies {
     implementation platform('com.google.firebase:firebase-bom:34.12.0')
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-firestore'
-    implementation 'com.google.android.gms:play-services-oss-licenses:17.2.2'
     testImplementation "junit:junit:$junitVersion"
     testImplementation 'org.json:json:20250517'
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

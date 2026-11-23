@@ -23,8 +23,8 @@ through 9 exactly once. The starting clues stay fixed.
   **Auto-fill Candidates** alongside the keypad lists the digits
   allowed by the current row, column, and box.
   If you correct or erase your latest entry before another board edit, the pencil
-  marks it removed are restored. Undo and redo track entries and notes during the
-  session.
+  marks it removed are restored. Undo and redo track entries and notes, including
+  when you close the app and continue the saved puzzle later.
 - **Hint** counts incorrect entries first and offers to highlight them. On a
   correct board, it explains a forced placement and can select the cell. Open
   the reasoning under a step to see the supporting constraints.

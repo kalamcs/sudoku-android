@@ -19,17 +19,23 @@ internal object SaveFormat {
         .put("d", game.puzzle.difficulty.key)
         .put("p", game.puzzle.givens.joinToString(""))
         .put("s", game.puzzle.solution.joinToString(""))
-        .put("b", game.values.joinToString(""))
-        .put("n", game.notes.joinToString(".") { Sudoku.digitsIn(it).joinToString("") })
+        .putBoard(game.values, game.notes, game.prunedNotes)
         .put("ms", game.elapsed(now))
         .put("w", if (game.finished) 1 else 0)
         .put("recordedWin", game.recordedWin)
         .put("z", if (game.paused) 1 else 0)
         .put("cell", game.selected)
         .put("pencil", game.notesMode)
-        .put("prunedNotes", game.prunedNotes?.let { pruning ->
-            JSONObject().put("cell", pruning.cell).put("peers", JSONArray(pruning.peers))
-        })
+        .apply {
+            if (!game.finished) {
+                val history = game.editHistory()
+                if (history.undo.isNotEmpty() || history.redo.isNotEmpty()) {
+                    put("history", JSONObject()
+                        .put("undo", encodeHistory(history.undo))
+                        .put("redo", encodeHistory(history.redo)))
+                }
+            }
+        }
         .toString()
 
     fun game(raw: String?): Game? {
@@ -39,26 +45,49 @@ internal object SaveFormat {
             if (data.optInt("v") != 1 || data.optInt("w") == 1) return null
             val difficulty = Difficulty.fromKey(data.optString("d")) ?: return null
             val givens = Sudoku.decode(data.optString("p")) ?: return null
-            val values = Sudoku.decode(data.optString("b")) ?: return null
             if (0 !in givens) return null
             val solution = Sudoku.uniqueSolution(givens) ?: return null
-            val segments = data.optString("n").split('.')
-            if (segments.size != Sudoku.COUNT || segments.any { it.length > 9 || it.any { d -> d !in '1'..'9' } }) return null
-            val notes = IntArray(Sudoku.COUNT) { cell ->
-                // The puzzle's clues take precedence over entries in older saves.
-                if (givens[cell] != 0) values[cell] = givens[cell]
-                if (values[cell] == 0) segments[cell].fold(0) { mask, digit -> mask or Sudoku.bit(digit - '0') } else 0
-            }
+            val board = readBoard(data, givens) ?: return null
             val maxElapsed = Long.MAX_VALUE / 2
             val elapsed = data.optLong("ms", data.optLong("e").coerceIn(0, maxElapsed / 1000) * 1000).coerceIn(0, maxElapsed)
-            val cell = data.optInt("cell", values.indexOf(0)).coerceIn(0, Sudoku.COUNT - 1)
-            val pruning = readPrunedNotes(data.optJSONObject("prunedNotes"), givens, values)
-            Game(Puzzle(difficulty, givens, solution), values, notes, elapsed, data.optInt("z") == 1, cell, pruning,
+            val cell = data.optInt("cell", board.values.indexOf(0)).coerceIn(0, Sudoku.COUNT - 1)
+            val history = data.optJSONObject("history")
+            Game(Puzzle(difficulty, givens, solution), board.values, board.notes, elapsed, data.optInt("z") == 1, cell, board.prunedNotes,
                 recordedWin = data.optBoolean("recordedWin"),
+                history = EditHistory(readHistory(history?.optJSONArray("undo"), givens), readHistory(history?.optJSONArray("redo"), givens)),
             ).apply {
                 notesMode = data.optBoolean("pencil")
             }
         }.getOrNull()
+    }
+
+    private fun JSONObject.putBoard(values: IntArray, notes: IntArray, pruning: PrunedNotes?) =
+        put("b", values.joinToString(""))
+            .put("n", notes.joinToString(".") { if (it == 0) "" else Sudoku.digitsIn(it).joinToString("") })
+            .put("prunedNotes", pruning?.let { JSONObject().put("cell", it.cell).put("peers", JSONArray(it.peers)) })
+
+    private fun encodeHistory(stack: List<BoardSnapshot>) = JSONArray().apply {
+        for (board in stack) put(JSONObject().putBoard(board.values, board.notes, board.prunedNotes))
+    }
+
+    private fun readHistory(stack: JSONArray?, givens: IntArray): List<BoardSnapshot> {
+        if (stack == null) return emptyList()
+        return List(stack.length()) { index ->
+            val entry = stack.optJSONObject(index) ?: return emptyList()
+            readBoard(entry, givens) ?: return emptyList()
+        }
+    }
+
+    private fun readBoard(data: JSONObject, givens: IntArray): BoardSnapshot? {
+        val values = Sudoku.decode(data.optString("b")) ?: return null
+        val segments = data.optString("n").split('.')
+        if (segments.size != Sudoku.COUNT || segments.any { it.length > 9 || it.any { digit -> digit !in '1'..'9' } }) return null
+        val notes = IntArray(Sudoku.COUNT) { cell ->
+            // The puzzle's clues take precedence over entries in older saves.
+            if (givens[cell] != 0) values[cell] = givens[cell]
+            if (values[cell] == 0) segments[cell].fold(0) { mask, digit -> mask or Sudoku.bit(digit - '0') } else 0
+        }
+        return BoardSnapshot(values, notes, readPrunedNotes(data.optJSONObject("prunedNotes"), givens, values))
     }
 
     private fun readPrunedNotes(data: JSONObject?, givens: IntArray, values: IntArray): PrunedNotes? {
