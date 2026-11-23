@@ -1,7 +1,8 @@
 # Sudoku for Android
 
-An offline Sudoku game built with Kotlin and native Android Views. Puzzles are
-generated on the device. No account or network permission is required.
+A Sudoku game built with Kotlin and native Android Views. Puzzle generation,
+gameplay, saved games, and statistics work offline. Sending feedback uses
+Firebase with anonymous sign-in.
 
 - Package `com.kalamcs.sudoku`
 - Minimum Android 7.0 (API 24)
@@ -18,18 +19,20 @@ through 9 exactly once. The starting clues stay fixed.
   keypad. Duplicate entries appear in red.
 - Pinch the board to zoom up to 3×. Drag with one finger to move around the
   enlarged board, then pinch inward or tap **Reset zoom** to see the full board.
-- Toggle **Notes: Off** or **Notes: On** to pencil in candidates. **Auto notes**
-  lists the digits allowed by the current row, column, and box. If you correct
-  or erase your latest entry before another board edit, the pencil marks it
-  removed are restored. Undo and redo track entries and notes during the session.
+- Toggle **Notes: Off** or **Notes: On** to pencil in candidates.
+  **Auto-fill Candidates** alongside the keypad lists the digits
+  allowed by the current row, column, and box.
+  If you correct or erase your latest entry before another board edit, the pencil
+  marks it removed are restored. Undo and redo track entries and notes, including
+  when you close the app and continue the saved puzzle later.
 - **Hint** counts incorrect entries first and offers to highlight them. On a
   correct board, it explains a forced placement and can select the cell. Open
   the reasoning under a step to see the supporting constraints.
-- **Check for errors** in the game menu reports incorrect entries and offers
-  to highlight them. The timer pauses in the game menu and runs while a hint
-  or an error result is open.
+- **Check Progress** reports incorrect entries and offers to highlight them. **Restart Puzzle**
+  opens the reset confirmation. The timer pauses in the game menu and runs
+  while a hint or an error result is open.
 - **Pause** and Android Back save the puzzle and return to Home. Tap
-  **Continue** to pick up where you left off. After waking the phone or
+  **Continue Puzzle** to pick up where you left off. After waking the phone or
   returning to the app, an open puzzle resumes automatically.
   The home stats table shows solved puzzles, best times and dates, and average
   times by difficulty. The timer also stops when you leave the app or open the
@@ -37,9 +40,13 @@ through 9 exactly once. The starting clues stay fixed.
 - **Screen timeout during a game** follows Android by default. Settings can
   keep the display awake for at least two or three minutes after an interaction,
   or for as long as the puzzle is open in the foreground.
-- On screens up to 360 dp wide, the number keypad uses a 3×3 layout. After a
-  win, choose **View board** and then **Replay puzzle** to solve it again for
-  practice. Only the first completion is recorded in your stats.
+- In **Settings → Number Keypad Layout**, choose **Auto**, **3×3**, or **1×9**.
+  Auto measures the board and controls within the current safe area. It
+  favors 3×3 when both layouts give the board similar space, and chooses
+  1×9 when it makes the board meaningfully larger and can keep 44 dp keys.
+  A manual 1×9 choice falls back to 3×3 when the row cannot fit.
+- After a win, choose **View board** and then **Replay Puzzle** to solve it again
+  for practice. Only the first completion is recorded in your stats.
 
 ### Basic solving methods
 
@@ -55,8 +62,9 @@ options. A **naked pair** reserves two digits for two cells in the same row,
 column, or box. A **proof by contradiction** rules out a candidate by showing
 that its forced consequences break a Sudoku rule.
 
-Open **How to play** from home or the game menu for board diagrams and worked
-examples of these techniques.
+Open **How to Play** from Home or the hamburger menu. **Rules** shows
+row, column, and box diagrams. **Strategies** groups basic and advanced methods
+and links to their worked examples.
 
 ## Puzzle difficulty
 
@@ -84,15 +92,15 @@ Further reading on puzzle difficulty:
 ## Appearance
 
 Open **Settings** from the home screen or the game menu. The app starts in
-**Light** mode with **Fluent 2** styling. Choose **Dark** to use dark colors or
+**Light** mode with **Ocean Blue** styling. Choose **Dark** to use dark colors or
 **System** to follow Android's light or dark setting. Appearance and theme
 choices are saved independently.
 
-The theme choices are [Fluent 2](https://fluent2.microsoft.design/color),
-[Nord](https://www.nordtheme.com/docs/colors-and-palettes/),
-[Catppuccin](https://catppuccin.com/palette/) with Latte in light mode and Mocha
-in dark mode, and [Google Material](https://m3.material.io/styles/color/the-color-system/).
-Each theme also colors the puzzle, notes, and worked examples.
+Open **Colour Palette** to compare Ocean Blue, Forest Green, Royal Purple,
+Warm Sand, Rose, and Slate side by side in Light and Dark. The previews show
+the selected cell, matching digits, and candidate notes. Choosing a palette
+keeps your current Light, Dark, or System setting. If your saved palette was
+retired, the app uses Ocean Blue.
 
 ## Build and test
 
@@ -116,10 +124,47 @@ Node package installation is only needed for the old web tests and icon tools.
 `npm test` runs JVM unit tests. To run the Android UI tests, start an emulator
 or connect a test device and run `cd android && ./gradlew connectedDebugAndroidTest`.
 
-**Send feedback** opens a draft directly in the player's email app, addressed
-to `kalamcsdeveloper@gmail.com`. Players write and send the email there. To use
-a different recipient in a custom build, set
-`SUDOKU_FEEDBACK_EMAIL=feedback@example.com npm run apk`.
+## Set up in-app feedback
+
+1. Sign in to the [Firebase console](https://console.firebase.google.com/) with
+   the Google account that should own the feedback. Create a project and keep
+   it on the **Spark** plan. Google Analytics is optional.
+2. In **Authentication**, open **Sign-in method** and enable **Anonymous**.
+   The SDK signs in anonymously when feedback is submitted.
+3. In **Firestore Database**, create the default database in **Standard edition**
+   and choose its location. Start in **production mode**. In the **Rules** tab,
+   paste [firestore.rules](firestore.rules) and publish it. These rules validate
+   feedback and allow the app to create documents. Read feedback in the Firebase
+   console using your project account.
+4. Add an Android app to the Firebase project using package
+   `com.kalamcs.sudoku`. Download `google-services.json` into
+   `android/app/google-services.json`. The repository ignores that file so each
+   build can use the project its owner chooses.
+5. Run `npm run apk`. Install that APK and submit a test message from
+   **Menu → Send Feedback**. Check the **Data** tab in Firestore for the
+   `feedback` collection.
+
+For a file downloaded to Windows, copy it from the project root in WSL:
+
+```bash
+cp /mnt/c/Users/kalam/Downloads/google-services.json android/app/google-services.json
+```
+
+Builds without that file can play Sudoku and open the feedback form.
+Submissions require Firebase configuration and connectivity. Firestore stores
+the feedback type, message, app version, and submission time. It includes a
+contact email only when the player opts in.
+
+The [Firestore Standard free quota](https://firebase.google.com/docs/firestore/quotas)
+includes 20,000 writes and 50,000 reads per day and 1 GiB of storage. A feedback
+submission uses one write.
+
+To test the rules locally with the Firebase CLI and Node.js 22:
+
+```bash
+firebase emulators:exec --only auth,firestore --project demo-sudoku-feedback \
+  'node --test tests/firestore-rules.test.mjs'
+```
 
 ## Install on a phone
 

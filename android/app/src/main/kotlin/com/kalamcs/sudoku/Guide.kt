@@ -1,9 +1,15 @@
 package com.kalamcs.sudoku
 
 import android.content.Context
+import android.content.res.ColorStateList
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
-import androidx.appcompat.widget.AppCompatButton
+
+internal enum class GuideTab(val label: String) { RULES("Rules"), STRATEGIES("Strategies") }
 
 internal data class GuidePicture(val diagram: Diagram, val caption: String)
 internal data class Lesson(
@@ -30,15 +36,6 @@ internal object Guide {
         Technique.LOCKED_CANDIDATES -> "A digit's possible spots line up inside one box, eliminating that digit from nearby cells."
         Technique.NAKED_PAIR -> "Two cells in the same row, column, or box share exactly the same two candidates."
         Technique.CONTRADICTION -> "Follow what a candidate would force and see whether it breaks a Sudoku rule."
-    }
-
-    fun rulePictures(): List<GuidePicture> {
-        val board = board(NAKED_BOARD)
-        return listOf(
-            GuidePicture(Diagram(board, group = row(0), focus = setOf(0)), "Row 1 runs left to right. Its existing 5 rules out another 5 anywhere in this row."),
-            GuidePicture(Diagram(board, group = column(0), focus = setOf(0)), "Column 1 runs top to bottom. Its existing 5 rules out another 5 anywhere in this column."),
-            GuidePicture(Diagram(board, group = box(0), focus = setOf(0)), "Box 1 is the top-left 3×3 box. Its existing 5 rules out another 5 anywhere in this box."),
-        )
     }
 
     fun lesson(technique: Technique): Lesson {
@@ -135,16 +132,31 @@ internal object Guide {
 }
 
 internal class GuideScreen(private val context: Context, private val ui: Ui) {
-    fun index(page: LinearLayout, onLesson: (Technique) -> Unit) {
-        val playing = ui.card()
-        ui.add(playing, ui.heading("Rules and controls", 20))
-        ui.add(playing, ui.text("Fill the empty cells with digits 1 through 9. Each row, column, and outlined 3×3 box must contain every digit exactly once. The starting clues stay fixed."), 8)
-        ui.add(playing, ui.text("Tap a cell, then a digit to enter it. Use Erase to clear your entry. Tap a filled cell to highlight that digit across the board, including matching pencil marks."), 8)
-        ui.add(playing, ui.text("A candidate is a digit that could fit in an empty cell. Turn on Notes to pencil in candidates. Auto notes lists the digits allowed by the current row, column, and box. Use Hint to check entries or see an explained move."), 8)
-        addRuleDiagrams(playing)
-        ui.add(page, playing, 16)
+    fun rules(page: LinearLayout) {
+        ui.add(page, ui.heading("Sudoku Rules", 21), 14)
+        ui.add(page, ui.text("Fill the 9 × 9 grid with digits 1 to 9. The starting clues stay fixed.", 15), 3)
+        addRule(page, BoardSample.ROW, 108, "Each horizontal row must contain the digits 1 to 9 exactly once.")
+        addRule(page, BoardSample.COLUMN, 19, "Each vertical column must contain the digits 1 to 9 exactly once.")
+        addRule(page, BoardSample.BOX, 65, "Each outlined 3 × 3 box must contain the digits 1 to 9 exactly once.")
+        val tips = ui.row().apply {
+            background = ui.shape(ui.palette.selectedCell, 11)
+            setPadding(ui.dp(10), ui.dp(9), ui.dp(10), ui.dp(9))
+            addView(ImageView(context).apply {
+                setImageDrawable(ui.icon(R.drawable.ic_hint, 23))
+                imageTintList = ColorStateList.valueOf(ui.palette.accentInk)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(ui.dp(25), ui.dp(25)))
+            ui.equal(this, ui.text("Use logic to place numbers. Every puzzle has one solution.", 14), 8)
+        }
+        ui.add(page, tips, 12)
+        ui.add(page, ui.heading("Game controls", 18), 17)
+        ui.add(page, ui.text("Tap a cell, then a digit. Use Erase to clear your entry. Tap a filled cell to highlight matching entries and pencil marks.", 14), 5)
+        ui.add(page, ui.text("Turn on Notes to pencil in candidates. Auto-fill Candidates lists the digits allowed by the current row, column, and box. Use Hint to check entries or see an explained move.", 14), 7)
+        ui.add(page, ui.text("Rows are numbered top to bottom. Columns are numbered left to right. Boxes 1–3 are across the top, 4–6 across the middle, and 7–9 across the bottom.", 14), 7)
+    }
 
-        val basics = ui.card()
+    fun strategies(page: LinearLayout, onLesson: (Technique) -> Unit) {
+        val basics = ui.card().apply { background = ui.dashboardSurface(ui.palette.cardRadius) }
         ui.add(basics, ui.heading("Basic solving methods", 20))
         ui.add(basics, ui.text("Start with a row, column, or box that is nearly full. List the digits that are missing."), 8)
         ui.add(basics, ui.text("Check an empty cell against its row, column, and box. If only one digit fits, place it."), 8)
@@ -152,44 +164,63 @@ internal class GuideScreen(private val context: Context, private val ui: Ui) {
         for (technique in Guide.basicTechniques) addLessonLink(basics, technique, onLesson)
         ui.add(page, basics, 12)
 
-        val advanced = ui.card()
+        val advanced = ui.card().apply { background = ui.dashboardSurface(ui.palette.cardRadius) }
         ui.add(advanced, ui.heading("Advanced solving techniques", 20))
         ui.add(advanced, ui.text("When the basic checks stall, look for patterns that let you cross off candidates. After each elimination, check for a single you can fill."), 8)
         for (technique in Guide.advancedTechniques) addLessonLink(advanced, technique, onLesson)
         ui.add(page, advanced, 12)
     }
 
-    private fun addRuleDiagrams(playing: LinearLayout) {
-        val diagrams = ui.column().apply { visibility = View.GONE }
-        ui.add(diagrams, ui.text("Rows are numbered from top to bottom. Columns are numbered from left to right. Boxes 1 to 3 are across the top, 4 to 6 are across the middle, and 7 to 9 are across the bottom."), 8)
-        Guide.rulePictures().forEach { addPicture(diagrams, it) }
-        lateinit var toggle: AppCompatButton
-        toggle = ui.button("Show board diagrams", icon = R.drawable.ic_guide) {
-            val show = diagrams.visibility != View.VISIBLE
-            diagrams.visibility = if (show) View.VISIBLE else View.GONE
-            toggle.text = if (show) "Hide board diagrams" else "Show board diagrams"
+    private fun addRule(page: LinearLayout, sample: BoardSample, sampleWidth: Int, explanation: String) {
+        val row = ui.row().apply { minimumHeight = ui.dp(73) }
+        val illustration = FrameLayout(context).apply {
+            addView(BoardSampleView(context, ui.palette, sample), FrameLayout.LayoutParams(ui.dp(sampleWidth), WRAP_CONTENT, Gravity.CENTER))
+            addView(ImageView(context).apply {
+                background = ui.shape(ui.palette.accent, 12)
+                setPadding(ui.dp(3), ui.dp(3), ui.dp(3), ui.dp(3))
+                setImageDrawable(ui.icon(R.drawable.ic_check, 14))
+                imageTintList = ColorStateList.valueOf(ui.palette.onAccent)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, FrameLayout.LayoutParams(ui.dp(18), ui.dp(18), Gravity.END or Gravity.BOTTOM))
         }
-        ui.add(playing, toggle, 12)
-        ui.add(playing, diagrams)
+        row.addView(illustration, LinearLayout.LayoutParams(ui.dp(132), WRAP_CONTENT))
+        ui.equal(row, ui.text(explanation, 15), 12)
+        ui.add(page, row, 7)
+        page.addView(View(context).apply { setBackgroundColor(ui.palette.toolbarSurface) },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, ui.dp(1)).apply { topMargin = ui.dp(6) })
     }
 
     private fun addLessonLink(section: LinearLayout, technique: Technique, onLesson: (Technique) -> Unit) {
-        ui.add(section, ui.button(technique.title) { onLesson(technique) }, 12)
-        ui.add(section, ui.text(Guide.definition(technique), 15, ui.palette.muted), 4)
+        val link = ui.column().apply {
+            background = ui.dashboardPress(ui.shape(ui.palette.toolbarSurface, 10, ui.palette.border))
+            setPadding(ui.dp(12), ui.dp(9), ui.dp(12), ui.dp(9))
+            minimumHeight = ui.dp(48)
+            isFocusable = true
+            androidx.core.view.ViewCompat.setScreenReaderFocusable(this, true)
+            setOnClickListener { onLesson(technique) }
+            ui.add(this, ui.text(technique.title, 16, ui.palette.accentInk, bold = true))
+            ui.add(this, ui.text(Guide.definition(technique), 14, ui.palette.muted), 4)
+        }
+        ui.add(section, link, 10)
     }
 
     fun lesson(page: LinearLayout, technique: Technique) {
         val lesson = Guide.lesson(technique)
-        val card = ui.card()
-        ui.add(card, ui.text(lesson.summary, 17))
+        val card = ui.card().apply { background = ui.dashboardSurface(ui.palette.cardRadius, .035f) }
+        ui.add(card, callout(lesson.summary))
         ui.add(card, ui.heading("Worked example", 20), 18)
         addPicture(card, lesson.pictures.first())
         for ((index, instruction) in lesson.instructions.withIndex()) {
             if (lesson.pictures.size > 1 && index == 3) addPicture(card, lesson.pictures[1])
             ui.add(card, ui.text("${index + 1}. $instruction"), 10)
         }
-        ui.add(card, ui.text(lesson.takeaway, 15, ui.palette.muted, bold = true), 18)
+        ui.add(card, callout(lesson.takeaway), 18)
         ui.add(page, card, 16)
+    }
+
+    private fun callout(text: String) = ui.text(text, 15, ui.palette.ink, bold = true).apply {
+        background = ui.shape(ui.palette.selectedCell, 9)
+        setPadding(ui.dp(10), ui.dp(8), ui.dp(10), ui.dp(8))
     }
 
     private fun addPicture(container: LinearLayout, picture: GuidePicture) {

@@ -102,6 +102,56 @@ class GameTest {
         assertEquals(four, restored.notes[3])
     }
 
+    @Test fun savedUndoAndRedoRestoreEntriesNotesAndPruningInOrder() {
+        val game = game()
+        game.select(3)
+        game.notesMode = true
+        assertTrue(game.enter(4))
+        game.notesMode = false
+        game.select(2)
+        assertTrue(game.enter(4))
+        assertTrue(game.enter(2))
+        assertTrue(game.undo())
+
+        val restored = checkNotNull(SaveFormat.game(SaveFormat.encode(game, 0)))
+        assertEquals(4, restored.values[2])
+        assertEquals(0, restored.notes[3])
+        assertEquals(PrunedNotes(2, listOf(3)), restored.prunedNotes)
+        assertTrue(restored.undo())
+        assertEquals(0, restored.values[2])
+        assertEquals(Sudoku.bit(4), restored.notes[3])
+        assertTrue(restored.undo())
+        assertEquals(0, restored.notes[3])
+        assertFalse(restored.canUndo)
+
+        val reopened = checkNotNull(SaveFormat.game(SaveFormat.encode(restored, 0)))
+        assertTrue(reopened.redo())
+        assertEquals(Sudoku.bit(4), reopened.notes[3])
+        assertTrue(reopened.redo())
+        assertEquals(4, reopened.values[2])
+        assertEquals(0, reopened.notes[3])
+        assertTrue(reopened.redo())
+        assertEquals(2, reopened.values[2])
+        assertEquals(Sudoku.bit(4), reopened.notes[3])
+        assertFalse(reopened.canRedo)
+    }
+
+    @Test fun damagedHistoryDoesNotPreventResumingTheCurrentBoard() {
+        val game = game()
+        game.select(2)
+        assertTrue(game.enter(4))
+        assertTrue(game.enter(2))
+        assertTrue(game.undo())
+        val saved = JSONObject(SaveFormat.encode(game, 0))
+        saved.getJSONObject("history").getJSONArray("undo").put(JSONObject())
+
+        val restored = checkNotNull(SaveFormat.game(saved.toString()))
+        assertEquals(4, restored.values[2])
+        assertFalse(restored.canUndo)
+        assertTrue(restored.redo())
+        assertEquals(2, restored.values[2])
+    }
+
     @Test fun selectedDigitsHighlightOnlyMatchingPencilMarks() {
         val game = game()
         game.notes[40] = Sudoku.bit(5) or Sudoku.bit(9)
@@ -184,6 +234,8 @@ class GameTest {
         val restored = checkNotNull(SaveFormat.game(legacy.toString()))
         assertEquals(4, restored.values[2])
         assertEquals(listOf(5, 9), Sudoku.digitsIn(restored.notes[40]))
+        assertTrue(restored.editHistory().undo.isEmpty())
+        assertTrue(restored.editHistory().redo.isEmpty())
         assertEquals(95_000L, restored.elapsed(1234))
         assertTrue(restored.paused)
         restored.select(40)

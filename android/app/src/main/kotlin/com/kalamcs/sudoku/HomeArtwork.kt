@@ -1,0 +1,131 @@
+package com.kalamcs.sudoku
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.ColorFilter
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PixelFormat
+import android.graphics.Shader
+import android.graphics.Typeface
+import android.graphics.drawable.Drawable
+import android.view.View
+
+internal class HomeWaves(context: Context, private val palette: GamePalette) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val path = Path()
+    private var farWave: Shader? = null
+    private var nearWave: Shader? = null
+
+    init { importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        if (h == 0) return
+        val color = palette.accent and 0xffffff
+        farWave = LinearGradient(0f, 0f, 0f, h.toFloat(), color or 0x42000000, color, Shader.TileMode.CLAMP)
+        nearWave = LinearGradient(0f, 0f, 0f, h.toFloat(), color or 0x59000000, color, Shader.TileMode.CLAMP)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        path.rewind()
+        path.moveTo(0f, .48f * h)
+        path.cubicTo(.21f * w, .08f * h, .33f * w, .83f * h, .51f * w, .53f * h)
+        path.cubicTo(.68f * w, .24f * h, .74f * w, -.10f * h, w, .43f * h)
+        path.lineTo(w, h)
+        path.lineTo(0f, h)
+        path.close()
+        paint.shader = farWave
+        canvas.drawPath(path, paint)
+
+        path.rewind()
+        path.moveTo(0f, .72f * h)
+        path.cubicTo(.17f * w, .15f * h, .30f * w, .30f * h, .45f * w, .65f * h)
+        path.cubicTo(.70f * w, 1.08f * h, .82f * w, .28f * h, w, .34f * h)
+        path.lineTo(w, h)
+        path.lineTo(0f, h)
+        path.close()
+        paint.shader = nearWave
+        canvas.drawPath(path, paint)
+    }
+}
+
+internal class SavedPuzzlePreview(context: Context, private val palette: GamePalette, private val game: Game) : View(context) {
+    private val density = resources.displayMetrics.density
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val outline = Path()
+
+    init { importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        outline.rewind()
+        val side = minOf(w, h).toFloat()
+        outline.addRoundRect(0f, 0f, side, side, 9 * density, 9 * density, Path.Direction.CW)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val side = minOf(width, height).toFloat()
+        val cellSide = side / 3f
+        val start = game.selected / 27 * 27 + game.selected % 9 / 3 * 3
+        val saved = canvas.save()
+        canvas.clipPath(outline)
+        canvas.drawColor(palette.surface)
+        paint.textAlign = Paint.Align.CENTER
+        paint.typeface = Typeface.DEFAULT_BOLD
+        paint.textSize = cellSide * .70f
+        for (row in 0..2) for (column in 0..2) {
+            val index = start + row * 9 + column
+            val left = column * cellSide
+            val top = row * cellSide
+            if (index == game.selected) {
+                paint.color = palette.matchingCell
+                canvas.drawRect(left, top, left + cellSide, top + cellSide, paint)
+            }
+            val digit = game.values[index]
+            if (digit != 0) {
+                paint.color = if (game.puzzle.givens[index] != 0) palette.givenDigit else palette.enteredDigit
+                val baseline = top + cellSide / 2 - (paint.ascent() + paint.descent()) / 2
+                canvas.drawText(digit.toString(), left + cellSide / 2, baseline, paint)
+            }
+        }
+        paint.color = palette.gridLine
+        paint.strokeWidth = density
+        for (index in 1..2) {
+            val at = index * cellSide
+            canvas.drawLine(at, 0f, at, side, paint)
+            canvas.drawLine(0f, at, side, at, paint)
+        }
+        canvas.restoreToCount(saved)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.3f * density
+        paint.color = palette.border
+        val inset = paint.strokeWidth / 2
+        canvas.drawRoundRect(inset, inset, side - inset, side - inset, 9 * density, 9 * density, paint)
+        paint.style = Paint.Style.FILL
+    }
+}
+
+internal class DifficultyBars(difficulty: Difficulty, palette: GamePalette) : Drawable() {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = palette.difficultyAccent(difficulty)
+    }
+
+    override fun draw(canvas: Canvas) {
+        val step = bounds.width() / 4f
+        val gap = step * .25f
+        val radius = step * .19f
+        val bottom = bounds.bottom.toFloat()
+        for (index in 0..3) {
+            val left = bounds.left + index * step + gap / 2
+            val top = bottom - bounds.height() * (.36f + index * .21f)
+            canvas.drawRoundRect(left, top, left + step - gap, bottom, radius, radius, paint)
+        }
+    }
+
+    override fun setAlpha(alpha: Int) { paint.alpha = alpha }
+    override fun setColorFilter(colorFilter: ColorFilter?) { paint.colorFilter = colorFilter }
+    @Deprecated("Drawable opacity is no longer used")
+    override fun getOpacity() = PixelFormat.TRANSLUCENT
+}

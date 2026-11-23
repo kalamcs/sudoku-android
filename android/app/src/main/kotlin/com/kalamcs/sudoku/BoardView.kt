@@ -3,6 +3,7 @@ package com.kalamcs.sudoku
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.os.Bundle
@@ -75,6 +76,9 @@ internal class BoardView(
 ) : View(context) {
     private val viewport = BoardViewport()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+    private val outline = Path()
+    private val outlineRadius = 6f * resources.displayMetrics.density
+    private val outlineStroke = 1.3f * resources.displayMetrics.density
     private val bold = Typeface.create("sans-serif", Typeface.BOLD)
     private val regular = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     private val digitText = Array(10) { it.toString() }
@@ -179,6 +183,8 @@ internal class BoardView(
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        outline.reset()
+        outline.addRoundRect(0f, 0f, size, size, outlineRadius, outlineRadius, Path.Direction.CW)
         val oldSide = minOf(oldw, oldh)
         if (oldSide != 0 && minOf(w, h) != oldSide) resetZoom()
     }
@@ -296,10 +302,14 @@ internal class BoardView(
         val example = diagram
         val values = active?.values ?: example?.board ?: return
         val notes = active?.notes ?: example?.notes ?: return
-        canvas.drawColor(palette.surface)
-        if (hidden) return
+        val gameBoard = active != null
         val saved = canvas.save()
-        canvas.clipRect(0f, 0f, size, size)
+        if (gameBoard) canvas.clipPath(outline) else canvas.clipRect(0f, 0f, size, size)
+        canvas.drawColor(palette.surface)
+        if (hidden) {
+            canvas.restoreToCount(saved)
+            return
+        }
         canvas.translate(viewport.left, viewport.top)
         canvas.scale(viewport.scale, viewport.scale)
         val step = size / 9
@@ -316,10 +326,9 @@ internal class BoardView(
             val errorHighlight = incorrect || ((selected || matching) && conflicting)
             val focus = example?.focus?.contains(cell) == true
             val crossed = example?.crossed?.contains(cell) == true
-            val filledSelection = selected && !errorHighlight
             val background = when {
                 errorHighlight || crossed -> palette.errorSurface
-                filledSelection -> palette.accent
+                selected -> palette.selectedCell
                 matching -> palette.matchingCell
                 focus -> palette.selectedCell
                 selection >= 0 && cell in Sudoku.peers[selection] || example?.group?.contains(cell) == true -> palette.relatedCell
@@ -333,19 +342,17 @@ internal class BoardView(
                 val isGiven = active == null || active.puzzle.givens[cell] != 0
                 paint.color = when {
                     incorrect || conflicting -> palette.error
-                    filledSelection -> palette.onAccent
-                    matching -> palette.matchingCellInk
-                    isGiven -> palette.ink
-                    else -> palette.accent
+                    matching -> palette.accentInk
+                    isGiven -> palette.givenDigit
+                    else -> palette.enteredDigit
                 }
                 numeral(canvas, value, x + step / 2, y + step / 2, step * .58f, if (isGiven) bold else regular)
             } else if (notes[cell] != 0) {
                 val matchingNote = active?.matchingNote(cell) ?: 0
                 val noteColor = when {
                     crossed -> palette.error
-                    filledSelection -> palette.onAccent
-                    focus -> palette.ink
-                    else -> palette.muted
+                    selected || focus -> palette.ink
+                    else -> palette.pencilMark
                 }
                 for (digit in 1..9) {
                     if (notes[cell] and Sudoku.bit(digit) == 0) continue
@@ -354,34 +361,41 @@ internal class BoardView(
                     val marked = digit == matchingNote
                     if (marked) {
                         paint.color = palette.noteMarker
-                        canvas.drawCircle(noteX, noteY, step * .137f, paint)
+                        val half = step * .157f
+                        val radius = step * .063f
+                        canvas.drawRoundRect(noteX - half, noteY - half, noteX + half, noteY + half, radius, radius, paint)
                     }
                     paint.color = if (marked) palette.ink else noteColor
                     numeral(canvas, digit, noteX, noteY, step * .26f, if (selected || focus || marked) bold else regular)
                 }
             }
-            if (selected || matching || focus || crossed) {
-                paint.color = when {
-                    errorHighlight || crossed -> palette.error
-                    filledSelection -> palette.onAccent
-                    else -> palette.accent
-                }
+            if (selected || focus || crossed) {
+                paint.color = if (errorHighlight || crossed) palette.error else palette.accent
                 paint.style = Paint.Style.STROKE
-                paint.strokeWidth = step * if (matching && !selected) .04f else .065f
+                paint.strokeWidth = step * .065f
                 val inset = step * .045f
-                canvas.drawRect(x + inset, y + inset, x + step - inset, y + step - inset, paint)
+                val radius = if (selected) step * .12f else 0f
+                canvas.drawRoundRect(x + inset, y + inset, x + step - inset, y + step - inset, radius, radius, paint)
                 paint.style = Paint.Style.FILL
             }
         }
-        for (i in 0..9) {
+        for (i in if (gameBoard) 1..8 else 0..9) {
             val thick = i % 3 == 0
-            paint.color = if (thick) palette.muted else palette.gridLine
-            paint.strokeWidth = if (thick) step * .075f else step * .018f
+            paint.color = if (thick) palette.boxBorder else palette.gridLine
+            paint.strokeWidth = if (thick) step * .045f else step * .018f
             val position = (i * step).coerceIn(paint.strokeWidth / 2, size - paint.strokeWidth / 2)
             canvas.drawLine(position, 0f, position, size, paint)
             canvas.drawLine(0f, position, size, position, paint)
         }
         canvas.restoreToCount(saved)
+        if (gameBoard) {
+            val inset = outlineStroke / 2
+            paint.color = palette.boxBorder
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = outlineStroke
+            canvas.drawRoundRect(inset, inset, size - inset, size - inset, outlineRadius, outlineRadius, paint)
+            paint.style = Paint.Style.FILL
+        }
     }
 
     private fun numeral(canvas: Canvas, value: Int, x: Float, y: Float, textSize: Float, typeface: Typeface) {
