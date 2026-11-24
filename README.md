@@ -17,6 +17,10 @@ through 9 exactly once. The starting clues stay fixed.
   matching entries and pencil marks. With a starting clue selected, tap a
   keypad digit to highlight its matches. Completed digits stay gray on the
   keypad. Duplicate entries appear in red.
+- At the bottom of the game, switch from **Cell first** to **Digit first** to
+  pick a keypad digit before tapping cells. The digit stays selected as you
+  enter it in different cells. Tap it again to clear the selection. Notes mode
+  works with either entry order.
 - Pinch the board to zoom up to 3×. Drag with one finger to move around the
   enlarged board, then pinch inward or tap **Reset zoom** to see the full board.
 - Toggle **Notes: Off** or **Notes: On** to pencil in candidates.

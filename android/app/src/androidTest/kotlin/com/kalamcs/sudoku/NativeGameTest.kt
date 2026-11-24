@@ -161,6 +161,32 @@ class NativeGameTest {
         }
     }
 
+    @Test fun entryOrderControlKeepsTheDigitSelectedAndCanReturnToCellFirst() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            val board = onView(isAssignableFrom(BoardView::class.java))
+            onView(withText("Continue Puzzle")).perform(click())
+            onView(withText("Cell first")).perform(scrollTo()).check(matches(isSelected()))
+            onView(withText("Digit first")).perform(scrollTo(), click()).check(matches(isSelected()))
+            onView(withText("5")).perform(scrollTo(), click()).check(matches(isSelected()))
+            assertCellDescription(1, "Row 1, column 2, empty")
+            board.perform(tapCell(0), tapCell(1), tapCell(36))
+            assertCellDescription(0, "Row 1, column 1, given 6")
+            assertCellDescription(1, "Row 1, column 2, 5")
+            assertCellDescription(36, "Row 5, column 1, 5")
+            onView(withText("5")).check(matches(isSelected()))
+            onView(withText("5")).perform(click()).check(matches(not(isSelected())))
+            board.perform(tapCell(2))
+            assertCellDescription(2, "Row 1, column 3, empty")
+
+            onView(withText("Cell first")).perform(scrollTo(), click()).check(matches(isSelected()))
+            board.perform(tapCell(2))
+            assertCellDescription(2, "Row 1, column 3, empty")
+            onView(withText("3")).perform(scrollTo(), click())
+            assertCellDescription(2, "Row 1, column 3, 3")
+        }
+    }
+
     @Test fun boardFitsAHeightConstrainedParent() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
@@ -198,6 +224,7 @@ class NativeGameTest {
                 val originalHeight = layout.height
                 val interactive = contents.filterIsInstance<AppCompatButton>()
                 val header = (contents.single { it.contentDescription == "Back to home" }.parent as View).parent as View
+                val entryOrder = text.single { it.text == "Digit first" }.parent as View
                 for ((widthDp, heightDp) in listOf(320 to 568, 360 to 640, 393 to 852, 430 to 932,
                     568 to 320, 640 to 360, 852 to 393, 932 to 430, 700 to 1200, 430 to 640)) {
                     val landscape = widthDp > heightDp
@@ -211,13 +238,21 @@ class NativeGameTest {
                     assertEquals(landscape, layout.sideBySide)
                     if (landscape) {
                         assertTrue("$viewport must keep the board and controls separate", board.right < toolbar.left)
-                        val minPanel = 5 * dp(44) + 4 * dp(4)
-                        val largestBoard = minOf(height - 2 * dp(4), width - 2 * dp(8) - dp(10) - minPanel)
+                        val minPanel = maxOf(5 * dp(44) + 4 * dp(4),
+                            if (layout.keypadColumns == 9) 9 * dp(44) + 8 * dp(2) else 0)
+                        val entryBelowBoard = entryOrder.left == board.left
+                        val entrySpace = if (entryBelowBoard) entryOrder.height + dp(6) else 0
+                        val largestBoard = minOf(height - 2 * dp(4) - entrySpace, width - 2 * dp(8) - dp(10) - minPanel)
                         assertEquals("$viewport should maximize board height", largestBoard, board.height)
                         assertEquals("$viewport should align the header and board", board.top, header.top)
                         assertTrue("$viewport should place navigation in the right pane", header.left > board.right)
-                    } else if (heightDp >= 852) {
-                        assertEquals("$viewport should use the entire width between side margins", width - 2 * dp(8), board.width)
+                        assertTrue("$viewport should place the entry toggle at the bottom",
+                            entryOrder.top >= if (entryBelowBoard) board.bottom else shortcuts.bottom)
+                    } else {
+                        assertTrue("$viewport should place the entry toggle below the shortcuts", entryOrder.top >= shortcuts.bottom)
+                        if (heightDp >= 852) {
+                            assertEquals("$viewport should use the entire width between side margins", width - 2 * dp(8), board.width)
+                        }
                     }
                     if (widthDp == 430 && heightDp == 640) assertEquals(9, layout.keypadColumns)
                     if (widthDp == 393 || heightDp >= 852 && !landscape) assertEquals(3, layout.keypadColumns)
@@ -640,10 +675,12 @@ class NativeGameTest {
         GameStore(context).save(game, SystemClock.elapsedRealtime())
     }
 
-    private fun tapFirstCell() = GeneralClickAction(Tap.SINGLE, { view ->
+    private fun tapFirstCell() = tapCell(0)
+
+    private fun tapCell(cell: Int) = GeneralClickAction(Tap.SINGLE, { view ->
         val origin = IntArray(2).apply(view::getLocationOnScreen)
-        val offset = view.width / 18f
-        floatArrayOf(origin[0] + offset, origin[1] + offset)
+        val step = view.width / 9f
+        floatArrayOf(origin[0] + (cell % 9 + .5f) * step, origin[1] + (cell / 9 + .5f) * step)
     }, Press.FINGER, InputDevice.SOURCE_TOUCHSCREEN, MotionEvent.BUTTON_PRIMARY)
 
     private fun pinch(out: Boolean) = object : ViewAction {

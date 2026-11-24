@@ -26,6 +26,8 @@ internal object SaveFormat {
         .put("z", if (game.paused) 1 else 0)
         .put("cell", game.selected)
         .put("pencil", game.notesMode)
+        .put("digitFirst", game.entryOrder == EntryOrder.DIGIT_FIRST)
+        .put("pickedDigit", game.pickedDigit)
         .apply {
             if (!game.finished) {
                 val history = game.editHistory()
@@ -55,6 +57,8 @@ internal object SaveFormat {
             Game(Puzzle(difficulty, givens, solution), board.values, board.notes, elapsed, data.optInt("z") == 1, cell, board.prunedNotes,
                 recordedWin = data.optBoolean("recordedWin"),
                 history = EditHistory(readHistory(history?.optJSONArray("undo"), givens), readHistory(history?.optJSONArray("redo"), givens)),
+                entryOrder = if (data.optBoolean("digitFirst")) EntryOrder.DIGIT_FIRST else EntryOrder.CELL_FIRST,
+                pickedDigit = data.optInt("pickedDigit"),
             ).apply {
                 notesMode = data.optBoolean("pencil")
             }
