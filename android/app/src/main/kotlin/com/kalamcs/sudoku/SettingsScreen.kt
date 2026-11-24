@@ -23,6 +23,7 @@ internal class SettingsScreen(private val context: Context, private val ui: Ui) 
         openPalette: () -> Unit,
         selectTimeout: () -> Unit,
         selectKeypad: () -> Unit,
+        selectEntryOrder: () -> Unit,
     ) {
         ui.add(page, ui.pageHeading("Settings", back))
         val looks = section("Appearance", R.drawable.ic_palette)
@@ -45,6 +46,7 @@ internal class SettingsScreen(private val context: Context, private val ui: Ui) 
         ui.add(gameplay, dropdown("Screen Timeout", timeoutLabel, R.drawable.ic_screen_timeout, "(for dimming)", selectTimeout))
         ui.add(gameplay, dropdown("Number Keypad Layout", appearance.keypadLayout.label, R.drawable.ic_auto_notes,
             onClick = selectKeypad))
+        ui.add(gameplay, dropdown("Entry order", appearance.entryOrder.label, R.drawable.ic_notes, onClick = selectEntryOrder))
         ui.add(page, gameplay, 12)
     }
 

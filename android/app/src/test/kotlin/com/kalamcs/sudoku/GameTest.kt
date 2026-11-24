@@ -13,6 +13,46 @@ class GameTest {
         return Game(Puzzle(Difficulty.EASY, givens, checkNotNull(Sudoku.solve(givens))))
     }
 
+    @Test fun continueHidesOnlyAnUntouchedPuzzlePlayedForAtMostTenSeconds() {
+        val untouched = game()
+        untouched.start(50)
+        assertFalse(untouched.canContinue(10_050))
+        assertTrue(untouched.canContinue(10_051))
+
+        val edited = game()
+        edited.notesMode = true
+        assertTrue(edited.enter(4))
+        assertTrue(edited.canContinue(0))
+        assertTrue(edited.undo())
+        assertTrue(edited.canContinue(0))
+        edited.finish(0)
+        assertFalse(edited.canContinue(12_000))
+    }
+
+    @Test fun remainingPlacementsTrackBoardEntriesAndUndo() {
+        val game = game()
+        val starting = game.remaining(5)
+        game.select(40)
+        game.notesMode = true
+        assertTrue(game.enter(5))
+        assertEquals(starting, game.remaining(5))
+        game.notesMode = false
+        assertTrue(game.enter(5))
+        assertEquals(starting - 1, game.remaining(5))
+        assertTrue(game.undo())
+        assertEquals(starting, game.remaining(5))
+    }
+
+    @Test fun changingEntryOrderAfterAWinCarriesIntoReplay() {
+        val game = game()
+        game.finish(0)
+        assertTrue(game.changeEntryOrder(EntryOrder.DIGIT_FIRST))
+        game.reset(0)
+        assertEquals(EntryOrder.DIGIT_FIRST, game.entryOrder)
+        assertFalse(game.tapDigit(4))
+        assertEquals(4, game.pickedDigit)
+    }
+
     @Test fun notesConflictsAndUndoRedoStayInSync() {
         val game = game()
         game.select(40)
@@ -199,6 +239,31 @@ class GameTest {
         assertFalse(restored.canUndo)
         assertTrue(restored.redo())
         assertEquals(2, restored.values[2])
+    }
+
+    @Test fun explicitCandidateRemovalsSurviveSavedHistoryAndFollowUndoAndRedo() {
+        val game = game()
+        val digit = Sudoku.bit(5)
+        game.select(40)
+        game.notesMode = true
+        assertTrue(game.enter(5))
+        assertTrue(game.enter(5))
+        assertEquals(0, game.notes[40])
+        game.notesMode = false
+        game.select(2)
+        assertTrue(game.enter(4))
+
+        val restored = checkNotNull(SaveFormat.game(SaveFormat.encode(game, 0)))
+        assertEquals(digit, restored.crossedOffNotes()[40])
+        assertTrue(restored.undo())
+        assertTrue(restored.undo())
+        assertEquals(0, restored.crossedOffNotes()[40])
+        assertTrue(restored.redo())
+        assertEquals(digit, restored.crossedOffNotes()[40])
+        restored.select(40)
+        restored.notesMode = true
+        assertTrue(restored.enter(5))
+        assertEquals(0, restored.crossedOffNotes()[40])
     }
 
     @Test fun selectedDigitsHighlightOnlyMatchingPencilMarks() {

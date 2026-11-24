@@ -1,6 +1,7 @@
 package com.kalamcs.sudoku
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.LinearGradient
@@ -11,6 +12,54 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.view.View
+import android.view.ViewGroup
+import kotlin.math.roundToInt
+
+internal class HomePanels(
+    context: Context,
+    private val ui: Ui,
+    private val puzzles: View,
+    private val stats: View,
+    private val actions: View,
+) : ViewGroup(context) {
+    private val gutter = ui.dp(12)
+    private var sideBySide = false
+
+    init {
+        listOf(puzzles, stats, actions).forEach { addView(it, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)) }
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val width = MeasureSpec.getSize(widthMeasureSpec)
+        val configuration = resources.configuration
+        val minimum = ui.dp(550) * maxOf(1f, configuration.fontScale)
+        sideBySide = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE && width >= minimum
+        val leftWidth = if (sideBySide) ((width - gutter) * .52f).roundToInt() else width
+        val rightWidth = if (sideBySide) width - gutter - leftWidth else width
+        fun measure(view: View, available: Int) = view.measure(
+            MeasureSpec.makeMeasureSpec(available, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+        )
+        measure(puzzles, leftWidth)
+        measure(stats, rightWidth)
+        measure(actions, leftWidth)
+        val leftHeight = puzzles.measuredHeight + gutter + actions.measuredHeight
+        val height = if (sideBySide) maxOf(leftHeight, stats.measuredHeight) else leftHeight + ui.dp(18) + stats.measuredHeight
+        setMeasuredDimension(width, resolveSize(height, heightMeasureSpec))
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        fun place(view: View, x: Int, y: Int) = view.layout(x, y, x + view.measuredWidth, y + view.measuredHeight)
+        place(puzzles, 0, 0)
+        if (sideBySide) {
+            place(stats, puzzles.measuredWidth + gutter, 0)
+            place(actions, 0, maxOf(puzzles.measuredHeight + gutter, stats.measuredHeight - actions.measuredHeight))
+        } else {
+            place(stats, 0, puzzles.measuredHeight + ui.dp(18))
+            place(actions, 0, stats.bottom + gutter)
+        }
+    }
+}
 
 internal class HomeWaves(context: Context, private val palette: GamePalette) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)

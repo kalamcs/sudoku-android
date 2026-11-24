@@ -33,6 +33,7 @@ import androidx.appcompat.widget.ListPopupWindow
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnLayout
 import androidx.lifecycle.ViewModelProvider
 import java.text.DateFormat
 import java.util.Date
@@ -64,6 +65,8 @@ class SudokuActivity : AppCompatActivity() {
     private var guideOrigin = Screen.HOME
     private var guideTab = GuideTab.RULES
     private var guideReturnToIndex = true
+    private var guideScrollY = 0
+    private var guideReturnHint: HintDialogState? = null
     private var lesson: Technique? = null
     private var board: BoardView? = null
     private var controls: GameControls? = null
@@ -76,10 +79,19 @@ class SudokuActivity : AppCompatActivity() {
     private var hintRequest = 0
     private var hintPending = false
     private var hintTask: Future<*>? = null
+    private var hintProgress: HintProgress? = null
     private val detailTasks = mutableSetOf<Future<*>>()
     private var displayedSecond = -1L
     private var lastSaveTime = 0L
     private val releaseScreen = Runnable { window.clearFlags(FLAG_KEEP_SCREEN_ON) }
+
+    private data class HintProgress(
+        val values: IntArray,
+        val hint: Hint,
+        val crossedOff: IntArray,
+    )
+
+    private data class HintDialogState(val hint: Hint, val values: IntArray, val scrollY: Int, val previewOpen: Boolean)
 
     private data class GameControls(
         val time: TextView,
@@ -91,8 +103,7 @@ class SudokuActivity : AppCompatActivity() {
         val hint: AppCompatButton,
         val autoNotes: AppCompatButton,
         val restart: AppCompatButton,
-        val digits: List<AppCompatButton>,
-        val entryOrder: LinearLayout,
+        val digits: List<DigitKey>,
     )
 
     private val tick = object : Runnable {
@@ -144,6 +155,7 @@ class SudokuActivity : AppCompatActivity() {
             guideOrigin = Screen.entries.firstOrNull { it.name == state?.getString("guideOrigin") } ?: Screen.HOME
             guideTab = GuideTab.entries.firstOrNull { it.name == state?.getString("guideTab") } ?: GuideTab.RULES
             guideReturnToIndex = state?.getBoolean("guideIndex", true) ?: true
+            guideScrollY = state?.getInt("guideScrollY") ?: 0
             settingsOrigin = if (state?.getBoolean("settingsFromGame") == true) Screen.GAME else Screen.HOME
             feedbackOrigin = Screen.entries.firstOrNull { it.name == state?.getString("feedbackOrigin") }
                 ?: if (state?.getBoolean("feedbackFromGame") == true) Screen.GAME else Screen.SETTINGS
@@ -166,10 +178,12 @@ class SudokuActivity : AppCompatActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        if (screen == Screen.GUIDE) rememberGuideScroll()
         outState.putString("screen", screen.name)
         outState.putString("guideOrigin", guideOrigin.name)
         outState.putString("guideTab", guideTab.name)
         outState.putBoolean("guideIndex", guideReturnToIndex)
+        outState.putInt("guideScrollY", guideScrollY)
         outState.putString("lesson", lesson?.name)
         outState.putBoolean("settingsFromGame", settingsOrigin == Screen.GAME)
         outState.putString("feedbackOrigin", feedbackOrigin.name)
@@ -232,7 +246,10 @@ class SudokuActivity : AppCompatActivity() {
         when (screen) {
             Screen.HOME -> renderHome()
             Screen.GAME -> showGame()
-            Screen.GUIDE -> renderGuide()
+            Screen.GUIDE -> {
+                rememberGuideScroll()
+                renderGuide()
+            }
             Screen.LESSON -> lesson?.let(::renderLesson)
             Screen.SETTINGS -> renderSettings()
             Screen.PALETTE -> renderPalette()
@@ -270,15 +287,16 @@ class SudokuActivity : AppCompatActivity() {
         }
     }
 
-    private fun page(): LinearLayout {
+    private fun page(wideInLandscape: Boolean = false): LinearLayout {
         preparePage()
         val root = layoutInflater.inflate(R.layout.activity_main, null) as FrameLayout
         val frame = root.findViewById<FrameLayout>(R.id.page_content)
         val column = object : LinearLayout(this) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                 val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                val maxWidth = ui.dp(if (landscape) 500 else 600)
-                val width = minOf(MeasureSpec.getSize(widthMeasureSpec), maxWidth)
+                val available = MeasureSpec.getSize(widthMeasureSpec)
+                val width = if (landscape && wideInLandscape) available
+                    else minOf(available, ui.dp(if (landscape) 500 else 600))
                 super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), heightMeasureSpec)
             }
         }.apply {
@@ -315,7 +333,7 @@ class SudokuActivity : AppCompatActivity() {
         screen = Screen.HOME
         controls = null
         board = null
-        val page = page()
+        val page = page(wideInLandscape = true)
         val busy = restoring || generationInProgress
         val banner = ui.row().apply {
             minimumHeight = ui.dp(45)
@@ -332,7 +350,8 @@ class SudokuActivity : AppCompatActivity() {
         })
         if (!busy) banner.addView(menuButton("Home menu"), LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
         ui.add(page, banner)
-        page.addView(HomeWaves(this, ui.palette), LinearLayout.LayoutParams(MATCH_PARENT, ui.dp(36)))
+        val waveHeight = if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 24 else 36
+        page.addView(HomeWaves(this, ui.palette), LinearLayout.LayoutParams(MATCH_PARENT, ui.dp(waveHeight)))
         if (busy) {
             val loading = ui.row()
             loading.addView(ProgressBar(this).apply {
@@ -345,10 +364,11 @@ class SudokuActivity : AppCompatActivity() {
             return
         }
 
-        val saved = game?.takeUnless { it.finished }
-        if (saved != null) ui.add(page, continueCard(saved), 4)
+        val puzzles = ui.column()
+        val saved = game?.takeIf { it.canContinue(now()) }
+        if (saved != null) ui.add(puzzles, continueCard(saved))
 
-        ui.add(page, ui.heading("Start New Puzzle", 20), 19)
+        ui.add(puzzles, ui.heading("Start New Puzzle", 20), if (saved == null) 15 else 19)
         val choices = ui.row()
         Difficulty.entries.forEachIndexed { index, difficulty ->
             val button = ui.button(difficulty.label) { askForNew(difficulty) }.apply {
@@ -363,13 +383,12 @@ class SudokuActivity : AppCompatActivity() {
             }
             ui.equal(choices, button, if (index == 0) 0 else 7)
         }
-        ui.add(page, choices, 11)
-        ui.add(page, homeStats(), 18)
+        ui.add(puzzles, choices, 11)
 
         val resources = ui.row()
         ui.equal(resources, ui.dashboardButton("How to Play", R.drawable.ic_guide) { openGuide() })
         ui.equal(resources, ui.dashboardButton("Settings", R.drawable.ic_settings, onClick = ::openSettings), 8)
-        ui.add(page, resources, 12)
+        ui.add(page, HomePanels(this, ui, puzzles, homeStats(), resources), 4)
     }
 
     private fun continueCard(saved: Game): View = ui.row().apply {
@@ -459,7 +478,7 @@ class SudokuActivity : AppCompatActivity() {
 
     private fun askForNew(difficulty: Difficulty) {
         if (generationInProgress) return
-        if (game?.hasProgress == true) {
+        if (game?.canContinue(now()) == true) {
             AlertDialog.Builder(this)
                 .setTitle("Start a new ${difficulty.label.lowercase()} game?")
                 .setMessage("This will replace your saved puzzle.")
@@ -480,6 +499,7 @@ class SudokuActivity : AppCompatActivity() {
                 generationInProgress = false
                 result.onSuccess {
                     game = Game(it)
+                    hintProgress = null
                     saveGame()
                     showGame()
                 }.onFailure {
@@ -491,7 +511,10 @@ class SudokuActivity : AppCompatActivity() {
     }
 
     private fun showGame() {
-        game?.paused = false
+        game?.let {
+            it.paused = false
+            it.changeEntryOrder(appearance.entryOrder)
+        }
         renderGame()
         if (foreground) resumeScreen()
     }
@@ -586,27 +609,17 @@ class SudokuActivity : AppCompatActivity() {
         val restart = ui.gameAction("Restart\nPuzzle", R.drawable.ic_restart, shortcut = true, onClick = ::resetBoard)
 
         val digits = (1..9).map { digit ->
-            ui.button(digit.toString()) { edit { it.tapDigit(digit) } }.apply {
-                textSize = 23f
-                minHeight = ui.dp(44)
-                minimumHeight = ui.dp(44)
-                includeFontPadding = false
-                setPadding(0, ui.dp(3), 0, ui.dp(3))
+            DigitKey(this, ui.palette, digit).apply {
+                setOnClickListener { edit { it.tapDigit(digit) } }
                 ui.styleDigit(this, selected = false, completed = false)
-            }
-        }
-        val entryOrder = ui.segments(EntryOrder.entries, active.entryOrder, EntryOrder::label) { order ->
-            if (active.changeEntryOrder(order)) {
-                saveGame()
-                updateGame()
             }
         }
         val root = FrameLayout(this).apply {
             addView(SolvingLayout(this@SudokuActivity, ui, header, status, view, toolbar, digits,
-                listOf(autoNotes, check, restart), entryOrder, appearance.keypadLayout),
+                listOf(autoNotes, check, restart), appearance.keypadLayout),
                 FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
-        controls = GameControls(time, undo, redo, notes, erase, pause, hint, autoNotes, restart, digits, entryOrder)
+        controls = GameControls(time, undo, redo, notes, erase, pause, hint, autoNotes, restart, digits)
         displayedSecond = -1L
         mountPage(root)
         updateGame()
@@ -642,22 +655,22 @@ class SudokuActivity : AppCompatActivity() {
         buttons.pause.isEnabled = playable
         buttons.hint.isEnabled = playable && !hintPending
         buttons.autoNotes.isEnabled = playable && active.hasBlank
-        for (index in 0 until buttons.entryOrder.childCount) buttons.entryOrder.getChildAt(index).isEnabled = playable
         val restartLabel = if (active.finished) "Replay\nPuzzle" else "Restart\nPuzzle"
         if (buttons.restart.text.toString() != restartLabel) buttons.restart.text = restartLabel
         val hintLabel = if (hintPending) "Finding…" else "Hint"
         if (buttons.hint.text.toString() != hintLabel) buttons.hint.text = hintLabel
         for ((index, digit) in buttons.digits.withIndex()) {
             digit.isEnabled = active.canTapDigit(index + 1)
-            val complete = active.counts[index + 1] == 9
+            val remaining = active.remaining(index + 1)
+            val complete = remaining == 0
             val selected = if (active.entryOrder == EntryOrder.DIGIT_FIRST) active.pickedDigit == index + 1
                 else !complete && active.matchingDigit == index + 1
             if (digit.isActivated != complete || digit.isSelected != selected) {
                 digit.isActivated = complete
                 digit.isSelected = selected
                 ui.styleDigit(digit, selected, complete)
-                ViewCompat.setStateDescription(digit, if (complete) "All nine placed" else null)
             }
+            digit.showRemaining(remaining)
         }
     }
 
@@ -768,6 +781,7 @@ class SudokuActivity : AppCompatActivity() {
             .setMessage(if (replay) "Your original result stays in your stats." else "This clears your entries and notes and restarts the timer.")
             .setPositiveButton(if (replay) "Replay" else "Reset") { _, _ ->
                 cancelHint()
+                hintProgress = null
                 active.reset(now())
                 active.stop(now())
                 board?.resetZoom()
@@ -805,6 +819,11 @@ class SudokuActivity : AppCompatActivity() {
             selectKeypad = {
                 chooseSetting("Number Keypad Layout", KeypadLayout.entries, appearance.keypadLayout, KeypadLayout::label) {
                     changeAppearance(appearance.copy(keypadLayout = it))
+                }
+            },
+            selectEntryOrder = {
+                chooseSetting("Entry order", EntryOrder.entries, appearance.entryOrder, EntryOrder::label) {
+                    changeAppearance(appearance.copy(entryOrder = it))
                 }
             },
         )
@@ -852,10 +871,12 @@ class SudokuActivity : AppCompatActivity() {
 
     private fun leaveSettings() = returnTo(settingsOrigin)
 
-    private fun openGuide(technique: Technique? = null) {
+    private fun openGuide(technique: Technique? = null, hintToRestore: HintDialogState? = null) {
         guideOrigin = screen
         guideReturnToIndex = technique == null
         guideTab = GuideTab.RULES
+        guideScrollY = 0
+        guideReturnHint = hintToRestore
         pauseGameForNavigation()
         if (technique == null) renderGuide() else renderLesson(technique)
     }
@@ -867,13 +888,22 @@ class SudokuActivity : AppCompatActivity() {
         ui.add(page, ui.segments(GuideTab.entries, guideTab, GuideTab::label) {
             if (guideTab != it) {
                 guideTab = it
+                guideScrollY = 0
                 renderGuide()
             }
         }, 8)
         when (guideTab) {
             GuideTab.RULES -> guide.rules(page)
-            GuideTab.STRATEGIES -> guide.strategies(page, ::renderLesson)
+            GuideTab.STRATEGIES -> guide.strategies(page) { technique ->
+                rememberGuideScroll()
+                renderLesson(technique)
+            }
         }
+        findViewById<ScrollView>(R.id.page_scroll).doOnLayout { view -> view.scrollTo(0, guideScrollY) }
+    }
+
+    private fun rememberGuideScroll() {
+        guideScrollY = findViewById<ScrollView>(R.id.page_scroll)?.scrollY ?: 0
     }
 
     private fun renderLesson(technique: Technique) {
@@ -888,7 +918,14 @@ class SudokuActivity : AppCompatActivity() {
         if (guideReturnToIndex) renderGuide() else leaveGuide()
     }
 
-    private fun leaveGuide() = returnTo(guideOrigin)
+    private fun leaveGuide() {
+        val restore = guideReturnHint
+        guideReturnHint = null
+        returnTo(guideOrigin)
+        if (screen == Screen.GAME && restore != null) {
+            showHint(restore.hint, restore.values, restore.scrollY, restore.previewOpen)
+        }
+    }
 
     private fun returnTo(origin: Screen) {
         when {
@@ -913,13 +950,19 @@ class SudokuActivity : AppCompatActivity() {
             showMistakes(mistakes.size)
             return
         }
+        val crossedOff = active.crossedOffNotes()
+        val previous = hintProgress
+        if (previous != null && previous.values.contentEquals(active.values) && previous.crossedOff.contentEquals(crossedOff)) {
+            showHint(previous.hint, previous.values)
+            return
+        }
         hintPending = true
         val request = ++hintRequest
         val values = active.values.copyOf()
         updateGame()
         hintTask = hintWorker.submit {
             val result = try {
-                Result.success(Sudoku.hint(values))
+                Result.success(Sudoku.hint(values, crossedOff = crossedOff))
             } catch (_: CancellationException) {
                 return@submit
             } catch (timeout: HintTimedOut) {
@@ -934,8 +977,11 @@ class SudokuActivity : AppCompatActivity() {
                 val hint = result.getOrNull()
                 when {
                     result.isFailure -> message("Hint", "Finding an explanation took too long. You can try again.")
-                    hint != null -> showHint(hint)
-                    else -> message("Hint", "There is no forced placement to show for this board.")
+                    hint != null -> {
+                        hintProgress = HintProgress(values, hint, crossedOff)
+                        showHint(hint, values)
+                    }
+                    else -> message("Hint", "There is no forced move to show for this board.")
                 }
             }
         }
@@ -951,23 +997,39 @@ class SudokuActivity : AppCompatActivity() {
             .showThemed()
     }
 
-    private fun showHint(hint: Hint) {
+    private fun showHint(hint: Hint, values: IntArray, scrollY: Int = 0, previewOpen: Boolean = false) {
         val panel = ui.column().apply { setPadding(ui.dp(22), ui.dp(4), ui.dp(22), ui.dp(12)) }
-        ui.add(panel, ui.text("Put ${hint.digit} in ${Sudoku.name(hint.cell)}.", 17, ui.palette.ink, true))
-        addSteps(panel, hint.steps)
+        val removing = hint.removals.isNotEmpty()
+        val summary = ui.card(12).apply { background = ui.shape(ui.palette.selectedCell, 12) }
+        if (removing) {
+            ui.add(summary, ui.heading("Candidates to cross off", 17))
+            for ((cell, removals) in hint.removals.groupBy { it.cell }.toSortedMap()) {
+                val digits = removals.map { it.digit }.sorted().joinToString(", ")
+                val position = Sudoku.name(cell).replaceFirstChar(Char::uppercaseChar)
+                ui.add(summary, ui.text("$position · $digits", 14), 5)
+            }
+        } else {
+            ui.add(summary, ui.heading("Put ${hint.digit} in ${Sudoku.name(hint.cell)}.", 17))
+        }
+        ui.add(panel, summary)
+        val preview = if (removing) addHintPreview(panel, hint, values, previewOpen) else null
+        ui.add(panel, ui.heading("Why this works", 17), 15)
+        val reason = hint.steps.singleOrNull()
+        if (!removing && reason != null && reason.details == null) ui.add(panel, ui.text(reason.text, 15), 6)
+        else addSteps(panel, hint.steps)
         val techniques = (listOf(hint.technique) + hint.steps.mapNotNull { it.technique }).distinct()
         ui.add(panel, ui.heading("Technique guide", 16), 18)
+        val scroll = ScrollView(this).apply { addView(panel) }
         for (technique in techniques) {
-            ui.add(panel, ui.button(technique.title) { openGuide(technique) }, 5)
+            ui.add(panel, ui.button(technique.title) {
+                openGuide(technique, HintDialogState(hint, values, scroll.scrollY, preview?.visibility == View.VISIBLE))
+            }, 5)
         }
-        val scroll = ScrollView(this).apply {
-            addView(panel)
-            isFillViewport = false
-        }
+        if (scrollY > 0) scroll.doOnLayout { it.scrollTo(0, scrollY) }
         AlertDialog.Builder(this)
-            .setTitle(hint.technique.title)
+            .setTitle(hint.heading)
             .setView(scroll)
-            .setPositiveButton("Show cell") { _, _ ->
+            .setPositiveButton(if (hint.removals.map { it.cell }.distinct().size > 1) "Show first cell" else "Show cell") { _, _ ->
                 game?.select(hint.cell)
                 board?.reveal(hint.cell)
                 updateGame()
@@ -976,10 +1038,42 @@ class SudokuActivity : AppCompatActivity() {
             .showThemed()
     }
 
+    private fun addHintPreview(panel: LinearLayout, hint: Hint, values: IntArray, previewOpen: Boolean): View {
+        val removals = hint.removals.groupBy { it.cell }
+        val notes = IntArray(Sudoku.COUNT)
+        for ((cell, candidates) in hint.focus) notes[cell] = candidates
+        for ((cell, entries) in removals) notes[cell] = entries.fold(0) { mask, entry -> mask or Sudoku.bit(entry.digit) }
+        val preview = BoardView(this, ui.palette).apply {
+            render(Diagram(values, notes, focus = hint.focus.keys, crossed = removals.keys),
+                "Candidate elimination. The shaded cells show the pattern. The marked notes are the candidates to cross off.")
+            visibility = if (previewOpen) View.VISIBLE else View.GONE
+        }
+        lateinit var toggle: AppCompatButton
+        toggle = ui.button(if (previewOpen) "Hide board preview" else "Show board preview") {
+            val show = preview.visibility != View.VISIBLE
+            preview.visibility = if (show) View.VISIBLE else View.GONE
+            toggle.text = if (show) "Hide board preview" else "Show board preview"
+        }
+        ui.add(panel, toggle, 8)
+        ui.add(panel, preview, 6)
+        return preview
+    }
+
     private fun addSteps(panel: LinearLayout, steps: List<HintStep>) {
         for ((index, step) in steps.withIndex()) {
-            val label = step.technique?.let { "${it.title}. ${step.text}" } ?: step.text
-            ui.add(panel, ui.text("${index + 1}. $label"), 10)
+            val card = ui.card(10).apply { background = ui.shape(ui.palette.toolbarSurface, 10) }
+            val row = ui.row().apply { gravity = Gravity.TOP }
+            row.addView(ui.text("${index + 1}", 13, ui.palette.accentInk, true).apply {
+                gravity = Gravity.CENTER
+                background = ui.shape(ui.palette.selectedCell, 6)
+            }, LinearLayout.LayoutParams(ui.dp(25), ui.dp(25)))
+            val copy = ui.column()
+            val heading = step.heading ?: step.technique?.title
+            if (heading != null) ui.add(copy, ui.heading(heading, 14))
+            ui.add(copy, ui.text(step.text, 14), if (heading == null) 0 else 4)
+            ui.equal(row, copy, 8)
+            ui.add(card, row)
+            ui.add(panel, card, 7)
             val detail = step.details ?: continue
             val children = ui.column().apply {
                 setPadding(ui.dp(10), 0, 0, 0)
@@ -997,6 +1091,7 @@ class SudokuActivity : AppCompatActivity() {
                     if (!loaded) {
                         val owner = pageDialog ?: return@button
                         toggle.isEnabled = false
+                        ui.add(children, ui.text("Finding the reasoning…", 14, ui.palette.muted))
                         lateinit var task: Future<*>
                         task = hintWorker.submit {
                             val expanded = try {
@@ -1023,8 +1118,8 @@ class SudokuActivity : AppCompatActivity() {
                     }
                 }
             }
-            ui.add(panel, toggle, 6)
-            ui.add(panel, children, 2)
+            ui.add(card, toggle, 6)
+            ui.add(card, children, 2)
         }
     }
 

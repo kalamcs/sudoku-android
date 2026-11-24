@@ -209,7 +209,7 @@ internal class GuideScreen(private val context: Context, private val ui: Ui) {
         ui.add(page, tips, 12)
         ui.add(page, ui.heading("Game controls", 18), 17)
         ui.add(page, ui.text("Tap a cell, then a digit. Use Erase to clear your entry. Tap a filled cell to highlight matching entries and pencil marks.", 14), 5)
-        ui.add(page, ui.text("Switch to Digit first at the bottom of the game to choose a keypad digit before tapping cells. The digit stays selected until you tap it again, choose another digit, or switch back to Cell first.", 14), 7)
+        ui.add(page, ui.text("Choose Digit first under Settings → Entry order to select a keypad digit before tapping cells. The digit stays selected until you tap it again or choose another digit. Each key shows how many placements remain.", 14), 7)
         ui.add(page, ui.text("Turn on Notes to pencil in candidates. Auto-fill Candidates lists the digits allowed by the current row, column, and box. Use Hint to check entries or see an explained move.", 14), 7)
         ui.add(page, ui.text("Rows are numbered top to bottom. Columns are numbered left to right. Boxes 1–3 are across the top, 4–6 across the middle, and 7–9 across the bottom.", 14), 7)
     }

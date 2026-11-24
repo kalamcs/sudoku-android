@@ -168,7 +168,7 @@ internal class Ui(private val context: Context) {
             else -> palette.toolbarSurface
         }
         val foreground = when {
-            completed -> palette.muted
+            completed -> palette.completedKeyInk
             selected -> palette.onAccent
             else -> palette.ink
         }
