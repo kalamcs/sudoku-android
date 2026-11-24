@@ -59,11 +59,24 @@ a row, column, or box. Recheck the affected areas after each placement.
 
 **Locked candidates** use the overlap between a line and a box to eliminate
 options. A **naked pair** reserves two digits for two cells in the same row,
-column, or box. A **proof by contradiction** rules out a candidate by showing
-that its forced consequences break a Sudoku rule.
+column, or box, so you can remove those digits from the other cells. A **hidden
+pair** occurs when two digits can go only in the same two cells, so you can
+remove other candidates from those cells. Both patterns extend to triples and
+quadruples. A **proof by contradiction** rules out a candidate by showing that
+its forced consequences break a Sudoku rule.
+[HoDoKu’s naked subsets guide](https://hodoku.sourceforge.net/en/tech_naked.php),
+[HoDoKu’s hidden subsets guide](https://hodoku.sourceforge.net/en/tech_hidden.php)
+
+### Expert solving techniques
+
+**X-Wing** and **Swordfish** use aligned candidates for one digit across two or
+three rows or columns, respectively. **XY-Wing** uses three cells with two
+candidates each to eliminate a candidate from cells that see both pincers.
+[HoDoKu’s fish guide](https://hodoku.sourceforge.net/en/tech_fishb.php),
+[HoDoKu’s wings guide](https://hodoku.sourceforge.net/en/tech_wings.php)
 
 Open **How to Play** from Home or the hamburger menu. **Rules** shows
-row, column, and box diagrams. **Strategies** groups basic and advanced methods
+row, column, and box diagrams. **Strategies** groups basic, advanced, and expert methods
 and links to their worked examples.
 
 ## Puzzle difficulty

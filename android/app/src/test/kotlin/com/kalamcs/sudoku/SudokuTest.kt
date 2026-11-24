@@ -136,4 +136,52 @@ class SudokuTest {
         assertTrue(pair.steps.any { it.technique == Technique.NAKED_PAIR })
         assertNotNull(Sudoku.solve(board(Guide.PROOF_BOARD)))
     }
+
+    @Test fun hiddenPairAndXYWingExamplesShowValidEliminations() {
+        val pair = Guide.lesson(Technique.HIDDEN_PAIR).pictures.single().diagram
+        val pairDigits = Sudoku.bit(1) or Sudoku.bit(5)
+        assertEquals(setOf(34, 35), pair.focus)
+        assertEquals(setOf(34, 35), pair.group.filter { pair.notes[it] and pairDigits != 0 }.toSet())
+        assertEquals(pairDigits or Sudoku.bit(7), pair.notes[34])
+        assertEquals(pairDigits or Sudoku.bit(3), pair.notes[35])
+        val pairSolution = checkNotNull(Sudoku.uniqueSolution(pair.board))
+        assertEquals(setOf(1, 5), pair.focus.map { pairSolution[it] }.toSet())
+
+        val wing = Guide.lesson(Technique.XY_WING).pictures.single().diagram
+        val pivot = 31
+        val firstPincer = 35
+        val secondPincer = 76
+        assertEquals(setOf(pivot, firstPincer, secondPincer), wing.focus)
+        assertEquals(listOf(3, 7), Sudoku.digitsIn(Sudoku.candidates(wing.board, pivot)))
+        assertEquals(listOf(1, 3), Sudoku.digitsIn(Sudoku.candidates(wing.board, firstPincer)))
+        assertEquals(listOf(1, 7), Sudoku.digitsIn(Sudoku.candidates(wing.board, secondPincer)))
+        assertTrue(firstPincer in Sudoku.peers[pivot] && secondPincer in Sudoku.peers[pivot])
+        val eliminations = Sudoku.peers[firstPincer].intersect(Sudoku.peers[secondPincer].toSet())
+            .filter { wing.board[it] == 0 && Sudoku.candidates(wing.board, it) and Sudoku.bit(1) != 0 }.toSet()
+        assertEquals(setOf(80), eliminations)
+        assertEquals(eliminations, wing.crossed)
+        assertEquals(Sudoku.bit(1), wing.notes[80])
+        assertTrue(checkNotNull(Sudoku.uniqueSolution(wing.board))[80] != 1)
+    }
+
+    @Test fun xWingAndSwordfishExamplesShowAllCandidatePositionsAndEliminations() {
+        assertRowFish(Technique.X_WING, 1, setOf(2, 8), setOf(0, 6))
+        assertRowFish(Technique.SWORDFISH, 2, setOf(0, 4, 8), setOf(0, 3, 7))
+    }
+
+    private fun assertRowFish(technique: Technique, digit: Int, rows: Set<Int>, columns: Set<Int>) {
+        val diagram = Guide.lesson(technique).pictures.single().diagram
+        val mask = Sudoku.bit(digit)
+        val candidates = diagram.board.indices.filter { diagram.board[it] == 0 && Sudoku.candidates(diagram.board, it) and mask != 0 }
+        val pattern = candidates.filter { it / 9 in rows }.toSet()
+        assertEquals(rows, pattern.map { it / 9 }.toSet())
+        assertEquals(columns, pattern.map { it % 9 }.toSet())
+        assertEquals(pattern, diagram.focus)
+        val eliminations = candidates.filter { it / 9 !in rows && it % 9 in columns }.toSet()
+        assertTrue(eliminations.isNotEmpty())
+        assertEquals(eliminations, diagram.crossed)
+        assertEquals(pattern + eliminations, diagram.notes.indices.filter { diagram.notes[it] == mask }.toSet())
+        val solution = checkNotNull(Sudoku.uniqueSolution(diagram.board))
+        assertTrue(eliminations.none { solution[it] == digit })
+    }
 }
