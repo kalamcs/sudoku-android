@@ -48,6 +48,55 @@ class GameTest {
         assertEquals(0, game.highlightedDigit)
     }
 
+    @Test fun digitFirstSelectionAppliesToMultipleCellsAndPreservesUndoHistory() {
+        val game = game()
+        assertTrue(game.changeEntryOrder(EntryOrder.DIGIT_FIRST))
+        assertFalse(game.tapDigit(4))
+        assertEquals(4, game.matchingDigit)
+        assertEquals(0, game.values[2])
+        assertFalse(game.canUndo)
+
+        assertFalse(game.tapCell(0))
+        assertEquals(5, game.values[0])
+        assertEquals(4, game.pickedDigit)
+        assertTrue(game.tapCell(2))
+        assertFalse(game.tapCell(2))
+        assertEquals(4, game.values[2])
+        assertTrue(game.tapCell(40))
+        assertEquals(4, game.values[40])
+        assertTrue(game.undo())
+        assertEquals(0, game.values[40])
+        assertEquals(4, game.values[2])
+        assertTrue(game.redo())
+        assertEquals(4, game.values[40])
+        assertEquals(4, game.matchingDigit)
+        assertFalse(game.tapDigit(4))
+        assertEquals(0, game.pickedDigit)
+    }
+
+    @Test fun digitFirstNotesAndSelectionResumeFromTheSavedPuzzle() {
+        val game = game()
+        game.changeEntryOrder(EntryOrder.DIGIT_FIRST)
+        game.notesMode = true
+        assertFalse(game.tapDigit(4))
+        assertTrue(game.tapCell(2))
+        assertEquals(Sudoku.bit(4), game.notes[2])
+        assertEquals(4, game.matchingNote(2))
+        assertTrue(game.tapCell(40))
+
+        val restored = checkNotNull(SaveFormat.game(SaveFormat.encode(game, 0)))
+        assertEquals(EntryOrder.DIGIT_FIRST, restored.entryOrder)
+        assertEquals(4, restored.pickedDigit)
+        assertTrue(restored.notesMode)
+        assertTrue(restored.tapCell(2))
+        assertEquals(0, restored.notes[2])
+        assertEquals(Sudoku.bit(4), restored.notes[40])
+        assertTrue(restored.changeEntryOrder(EntryOrder.CELL_FIRST))
+        assertEquals(0, restored.pickedDigit)
+        assertTrue(restored.tapDigit(5))
+        assertEquals(Sudoku.bit(5), restored.notes[2])
+    }
+
     @Test fun correctingTheLatestEntryRestoresOnlyTheNotesItRemoved() {
         val game = game()
         val four = Sudoku.bit(4)
@@ -234,6 +283,8 @@ class GameTest {
         val restored = checkNotNull(SaveFormat.game(legacy.toString()))
         assertEquals(4, restored.values[2])
         assertEquals(listOf(5, 9), Sudoku.digitsIn(restored.notes[40]))
+        assertEquals(EntryOrder.CELL_FIRST, restored.entryOrder)
+        assertEquals(0, restored.pickedDigit)
         assertTrue(restored.editHistory().undo.isEmpty())
         assertTrue(restored.editHistory().redo.isEmpty())
         assertEquals(95_000L, restored.elapsed(1234))

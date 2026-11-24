@@ -92,6 +92,7 @@ class SudokuActivity : AppCompatActivity() {
         val autoNotes: AppCompatButton,
         val restart: AppCompatButton,
         val digits: List<AppCompatButton>,
+        val entryOrder: LinearLayout,
     )
 
     private val tick = object : Runnable {
@@ -500,11 +501,7 @@ class SudokuActivity : AppCompatActivity() {
         screen = Screen.GAME
         preparePage()
         val view = BoardView(this, ui.palette) { cell ->
-            if (!active.paused) {
-                cancelHint()
-                active.select(cell)
-                updateGame()
-            }
+            if (!active.paused) edit(cancelOnSelection = true) { it.tapCell(cell) }
         }
         board = view
 
@@ -589,7 +586,7 @@ class SudokuActivity : AppCompatActivity() {
         val restart = ui.gameAction("Restart\nPuzzle", R.drawable.ic_restart, shortcut = true, onClick = ::resetBoard)
 
         val digits = (1..9).map { digit ->
-            ui.button(digit.toString()) { edit { it.enter(digit) } }.apply {
+            ui.button(digit.toString()) { edit { it.tapDigit(digit) } }.apply {
                 textSize = 23f
                 minHeight = ui.dp(44)
                 minimumHeight = ui.dp(44)
@@ -598,12 +595,18 @@ class SudokuActivity : AppCompatActivity() {
                 ui.styleDigit(this, selected = false, completed = false)
             }
         }
+        val entryOrder = ui.segments(EntryOrder.entries, active.entryOrder, EntryOrder::label) { order ->
+            if (active.changeEntryOrder(order)) {
+                saveGame()
+                updateGame()
+            }
+        }
         val root = FrameLayout(this).apply {
             addView(SolvingLayout(this@SudokuActivity, ui, header, status, view, toolbar, digits,
-                listOf(autoNotes, check, restart), appearance.keypadLayout),
+                listOf(autoNotes, check, restart), entryOrder, appearance.keypadLayout),
                 FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
-        controls = GameControls(time, undo, redo, notes, erase, pause, hint, autoNotes, restart, digits)
+        controls = GameControls(time, undo, redo, notes, erase, pause, hint, autoNotes, restart, digits, entryOrder)
         displayedSecond = -1L
         mountPage(root)
         updateGame()
@@ -639,14 +642,16 @@ class SudokuActivity : AppCompatActivity() {
         buttons.pause.isEnabled = playable
         buttons.hint.isEnabled = playable && !hintPending
         buttons.autoNotes.isEnabled = playable && active.hasBlank
+        for (index in 0 until buttons.entryOrder.childCount) buttons.entryOrder.getChildAt(index).isEnabled = playable
         val restartLabel = if (active.finished) "Replay\nPuzzle" else "Restart\nPuzzle"
         if (buttons.restart.text.toString() != restartLabel) buttons.restart.text = restartLabel
         val hintLabel = if (hintPending) "Finding…" else "Hint"
         if (buttons.hint.text.toString() != hintLabel) buttons.hint.text = hintLabel
         for ((index, digit) in buttons.digits.withIndex()) {
-            digit.isEnabled = active.canEnter(index + 1)
+            digit.isEnabled = active.canTapDigit(index + 1)
             val complete = active.counts[index + 1] == 9
-            val selected = !complete && active.matchingDigit == index + 1
+            val selected = if (active.entryOrder == EntryOrder.DIGIT_FIRST) active.pickedDigit == index + 1
+                else !complete && active.matchingDigit == index + 1
             if (digit.isActivated != complete || digit.isSelected != selected) {
                 digit.isActivated = complete
                 digit.isSelected = selected
@@ -656,10 +661,11 @@ class SudokuActivity : AppCompatActivity() {
         }
     }
 
-    private fun edit(change: (Game) -> Boolean) {
+    private fun edit(cancelOnSelection: Boolean = false, change: (Game) -> Boolean) {
         val active = game ?: return
-        if (change(active)) {
-            cancelHint()
+        val changed = change(active)
+        if (changed || cancelOnSelection) cancelHint()
+        if (changed) {
             saveGame()
             if (!active.hasBlank) checkCompleted(active)
         }

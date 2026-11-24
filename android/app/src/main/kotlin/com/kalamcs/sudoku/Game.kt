@@ -5,6 +5,8 @@ internal data class PrunedNotes(val cell: Int, val peers: List<Int>)
 internal data class BoardSnapshot(val values: IntArray, val notes: IntArray, val prunedNotes: PrunedNotes?)
 internal data class EditHistory(val undo: List<BoardSnapshot> = emptyList(), val redo: List<BoardSnapshot> = emptyList())
 
+internal enum class EntryOrder(val label: String) { CELL_FIRST("Cell first"), DIGIT_FIRST("Digit first") }
+
 internal class Game(
     val puzzle: Puzzle,
     values: IntArray = puzzle.givens.copyOf(),
@@ -15,6 +17,8 @@ internal class Game(
     prunedNotes: PrunedNotes? = null,
     recordedWin: Boolean = false,
     history: EditHistory = EditHistory(),
+    entryOrder: EntryOrder = EntryOrder.CELL_FIRST,
+    pickedDigit: Int = 0,
 ) {
     var values = values
         private set
@@ -23,9 +27,17 @@ internal class Game(
     var prunedNotes = prunedNotes
         private set
     var notesMode = false
+    var entryOrder = entryOrder
+        private set
+    var pickedDigit = pickedDigit.takeIf { entryOrder == EntryOrder.DIGIT_FIRST && it in 1..9 } ?: 0
+        private set
     var highlightedDigit = 0
         private set
-    val matchingDigit get() = if (highlightedDigit != 0) highlightedDigit else values[selected]
+    val matchingDigit get() = when {
+        pickedDigit != 0 -> pickedDigit
+        highlightedDigit != 0 -> highlightedDigit
+        else -> values[selected]
+    }
     var finished = false
         private set
     var recordedWin = recordedWin
@@ -51,6 +63,33 @@ internal class Game(
     }
 
     fun canEnter(digit: Int) = !paused && !finished && (puzzle.givens[selected] != 0 || counts[digit] < 9)
+
+    fun changeEntryOrder(order: EntryOrder): Boolean {
+        if (paused || finished || entryOrder == order) return false
+        entryOrder = order
+        pickedDigit = 0
+        highlightedDigit = 0
+        return true
+    }
+
+    fun canTapDigit(digit: Int) = if (entryOrder == EntryOrder.CELL_FIRST) canEnter(digit)
+        else !paused && !finished && (digit == pickedDigit || counts[digit] < 9)
+
+    fun tapDigit(digit: Int): Boolean {
+        if (entryOrder == EntryOrder.CELL_FIRST) return enter(digit)
+        if (digit !in 1..9 || !canTapDigit(digit)) return false
+        pickedDigit = if (pickedDigit == digit) 0 else digit
+        highlightedDigit = 0
+        return false
+    }
+
+    fun tapCell(cell: Int): Boolean {
+        if (paused || cell !in values.indices) return false
+        select(cell)
+        val digit = pickedDigit
+        if (digit == 0 || puzzle.givens[cell] != 0 || !notesMode && values[cell] == digit) return false
+        return enter(digit)
+    }
 
     fun matchingNote(cell: Int): Int {
         val digit = matchingDigit
@@ -170,6 +209,7 @@ internal class Game(
         notesMode = false
         markedErrors = emptySet()
         highlightedDigit = 0
+        pickedDigit = 0
         return firstWin
     }
 
@@ -177,6 +217,7 @@ internal class Game(
         values = puzzle.givens.copyOf()
         notes = IntArray(Sudoku.COUNT)
         notesMode = false
+        pickedDigit = 0
         prunedNotes = null
         markedErrors = emptySet()
         undo.clear()

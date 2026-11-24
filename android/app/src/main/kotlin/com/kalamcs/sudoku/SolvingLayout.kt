@@ -19,9 +19,10 @@ internal class SolvingLayout(
     toolbar: View,
     digits: List<AppCompatButton>,
     shortcuts: List<AppCompatButton>,
+    entryOrder: View,
     preference: KeypadLayout,
 ) : ScrollView(context) {
-    private val content = SolvingContent(context, ui, header, status, board, toolbar, digits, shortcuts, preference)
+    private val content = SolvingContent(context, ui, header, status, board, toolbar, digits, shortcuts, entryOrder, preference)
 
     internal val keypadColumns get() = content.keypadColumns
     internal val sideBySide get() = content.sideBySide
@@ -47,6 +48,7 @@ private class SolvingContent(
     private val toolbar: View,
     digits: List<AppCompatButton>,
     shortcutButtons: List<AppCompatButton>,
+    private val entryOrder: View,
     private val preference: KeypadLayout,
 ) : ViewGroup(context) {
     private val edge = ui.dp(8)
@@ -55,6 +57,7 @@ private class SolvingContent(
     private val paneGap = ui.dp(10)
     private val verticalEdge = ui.dp(4)
     private val minimumBoard = ui.dp(144)
+    private val minimumCompactBoard = ui.dp(108)
     private val minimumPanel = 5 * ui.dp(44) + 4 * ui.dp(4)
     private val waves = HomeWaves(context, ui.palette)
     private val keypad = KeypadGrid(context, ui, digits)
@@ -76,6 +79,7 @@ private class SolvingContent(
         val splitFooter: Boolean,
         val compactFooter: Boolean,
         val height: Int,
+        val entryUnderBoard: Boolean = false,
     )
 
     private lateinit var plan: Plan
@@ -86,7 +90,7 @@ private class SolvingContent(
 
     init {
         id = R.id.page_content
-        for (child in listOf(header, waves, status, board, toolbar, keypad, shortcuts)) {
+        for (child in listOf(header, waves, status, board, toolbar, keypad, shortcuts, entryOrder)) {
             addView(child, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         }
     }
@@ -121,16 +125,27 @@ private class SolvingContent(
         if (sideBySide) {
             val boardSize = minOf(viewportHeight - 2 * verticalEdge, width - paneGap - maxOf(minimumPanel, minimumKeypadWidth))
                 .coerceAtLeast(1)
-            val panelWidth = width - paneGap - boardSize
-            val regular = panelPlan(columns, boardSize, panelWidth, panelWidth, panelWidth, split = false, compact = false)
-            if (regular.height <= viewportHeight) return regular
-            val compact = panelPlan(columns, boardSize, panelWidth, panelWidth, panelWidth, split = false, compact = true)
-            if (compact.height <= viewportHeight || columns == 9) return compact
-            val footerWidth = shortcuts.columnWidth
-            val keypadWidth = panelWidth - footerWidth - gap
-            if (keypadWidth < minimumKeypadWidth) return compact
-            return panelPlan(columns, boardSize, panelWidth, keypadWidth, footerWidth, split = true, compact = true)
-                .takeIf { it.height < compact.height } ?: compact
+            fun landscape(size: Int, entryUnderBoard: Boolean): Plan {
+                val panelWidth = width - paneGap - size
+                val regular = panelPlan(columns, size, panelWidth, panelWidth, panelWidth,
+                    split = false, compact = false, entryUnderBoard = entryUnderBoard)
+                if (regular.height <= viewportHeight) return regular
+                val compact = panelPlan(columns, size, panelWidth, panelWidth, panelWidth,
+                    split = false, compact = true, entryUnderBoard = entryUnderBoard)
+                if (compact.height <= viewportHeight || columns == 9) return compact
+                val footerWidth = shortcuts.columnWidth
+                val keypadWidth = panelWidth - footerWidth - gap
+                if (keypadWidth < minimumKeypadWidth) return compact
+                return panelPlan(columns, size, panelWidth, keypadWidth, footerWidth,
+                    split = true, compact = true, entryUnderBoard = entryUnderBoard)
+                    .takeIf { it.height < compact.height } ?: compact
+            }
+            val right = landscape(boardSize, entryUnderBoard = false)
+            if (right.height <= viewportHeight) return right
+            val entryHeight = measureHeight(entryOrder, boardSize)
+            val smallerBoard = minOf(boardSize, viewportHeight - 2 * verticalEdge - gap - entryHeight)
+            if (smallerBoard < minimumBoard) return right
+            return landscape(smallerBoard, entryUnderBoard = true).takeIf { it.height < right.height } ?: right
         }
 
         fun portrait(compact: Boolean): Plan {
@@ -138,8 +153,9 @@ private class SolvingContent(
             measureControls(sizes)
             val spacing = if (compact) compactGap else gap
             val fixedHeight = headerHeight + status.measuredHeight + toolbar.measuredHeight + keypad.measuredHeight +
-                shortcuts.measuredHeight + 5 * spacing + verticalEdge
-            val boardSize = (viewportHeight - fixedHeight).coerceIn(minOf(minimumBoard, width), width)
+                shortcuts.measuredHeight + entryOrder.measuredHeight + 6 * spacing + verticalEdge
+            val boardMinimum = if (compact) minimumCompactBoard else minimumBoard
+            val boardSize = (viewportHeight - fixedHeight).coerceIn(minOf(boardMinimum, width), width)
             return sizes.copy(boardSize = boardSize, height = fixedHeight + boardSize)
         }
         val regular = portrait(compact = false)
@@ -150,14 +166,19 @@ private class SolvingContent(
 
     private fun panelPlan(
         columns: Int, boardSize: Int, panelWidth: Int, keypadWidth: Int, footerWidth: Int, split: Boolean, compact: Boolean,
+        entryUnderBoard: Boolean,
     ): Plan {
-        val sizes = Plan(columns, boardSize, panelWidth, keypadWidth, footerWidth, split, compact, height = 0)
+        val sizes = Plan(columns, boardSize, panelWidth, keypadWidth, footerWidth, split, compact,
+            height = 0, entryUnderBoard = entryUnderBoard)
         measureControls(sizes)
         val spacing = if (compact) compactGap else gap
         val lower = if (split) maxOf(keypad.measuredHeight, shortcuts.measuredHeight)
             else keypad.measuredHeight + spacing + shortcuts.measuredHeight
-        val panelHeight = header.measuredHeight + status.measuredHeight + toolbar.measuredHeight + 3 * spacing + lower
-        return sizes.copy(height = 2 * verticalEdge + maxOf(boardSize, panelHeight))
+        val entryHeight = spacing + entryOrder.measuredHeight
+        val boardHeight = boardSize + if (entryUnderBoard) entryHeight else 0
+        val panelHeight = header.measuredHeight + status.measuredHeight + toolbar.measuredHeight + 3 * spacing + lower +
+            if (entryUnderBoard) 0 else entryHeight
+        return sizes.copy(height = 2 * verticalEdge + maxOf(boardHeight, panelHeight))
     }
 
     private fun measureControls(sizes: Plan) {
@@ -166,20 +187,23 @@ private class SolvingContent(
         measureHeight(toolbar, sizes.panelWidth)
         keypad.measureAt(sizes.keypadWidth, sizes.columns)
         shortcuts.measureAt(sizes.shortcutWidth, sizes.splitFooter, sizes.compactFooter)
+        measureHeight(entryOrder, if (sizes.entryUnderBoard) sizes.boardSize else sizes.panelWidth)
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         if (sideBySide) {
             val spacing = if (plan.compactFooter) compactGap else gap
             waves.place(0, 0)
-            board.place(edge, verticalEdge)
+            val boardBottom = board.place(edge, verticalEdge)
             val panelLeft = edge + plan.boardSize + paneGap
             val statusTop = header.place(panelLeft, verticalEdge) + spacing
             val toolbarTop = status.place(panelLeft, statusTop) + spacing
             val keypadTop = toolbar.place(panelLeft, toolbarTop) + spacing
             val keypadBottom = keypad.place(panelLeft, keypadTop)
-            if (plan.splitFooter) shortcuts.place(panelLeft + plan.keypadWidth + gap, keypadTop)
-            else shortcuts.place(panelLeft, keypadBottom + spacing)
+            val shortcutsBottom = if (plan.splitFooter) shortcuts.place(panelLeft + plan.keypadWidth + gap, keypadTop)
+                else shortcuts.place(panelLeft, keypadBottom + spacing)
+            if (plan.entryUnderBoard) entryOrder.place(edge, boardBottom + spacing)
+            else entryOrder.place(panelLeft, maxOf(keypadBottom, shortcutsBottom) + spacing)
         } else {
             header.place(0, 0)
             waves.place(0, header.measuredHeight)
@@ -187,7 +211,8 @@ private class SolvingContent(
             val boardTop = status.place(edge, header.measuredHeight + waveHeight + spacing) + spacing
             val toolbarTop = board.place((measuredWidth - plan.boardSize) / 2, boardTop) + spacing
             val keypadTop = toolbar.place(edge, toolbarTop) + spacing
-            shortcuts.place(edge, keypad.place(edge, keypadTop) + spacing)
+            val shortcutsBottom = shortcuts.place(edge, keypad.place(edge, keypadTop) + spacing)
+            entryOrder.place(edge, shortcutsBottom + spacing)
         }
     }
 }
