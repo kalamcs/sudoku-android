@@ -1,7 +1,14 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 package com.kalamcs.sudoku
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.method.LinkMovementMethod
+import android.text.style.URLSpan
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -67,9 +74,20 @@ internal class SettingsScreen(private val context: Context, private val ui: Ui) 
         ui.add(page, ui.pageHeading("About", back))
         val app = section("Sudoku", R.drawable.ic_auto_notes)
         ui.add(app, settingRow("Version ${BuildConfig.VERSION_NAME}", R.drawable.ic_info))
-        ui.add(app, ui.text("Copyright (c) 2026 Kalam Shah", 14, ui.palette.muted).apply {
+        val attribution = ui.column().apply {
             setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(14))
+        }
+        ui.add(attribution, ui.text("Copyright (c) 2026 Kalam Shah", 14, ui.palette.muted))
+        ui.add(attribution, ui.text("Source available under the", 14, ui.palette.muted), 8)
+        ui.add(attribution, ui.text("PolyForm Noncommercial License 1.0.0", 14).apply {
+            text = SpannableString(text).apply {
+                setSpan(URLSpan("https://polyformproject.org/licenses/noncommercial/1.0.0"),
+                    0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            setLinkTextColor(ui.palette.accentInk)
+            movementMethod = LinkMovementMethod.getInstance()
         })
+        ui.add(app, attribution)
         ui.add(page, app, 8)
     }
 

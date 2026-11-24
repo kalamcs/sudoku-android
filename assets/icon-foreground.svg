@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Kalam Shah -->
+<!-- SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 -->
+
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <!-- Transparent adaptive-icon foreground: the board sits inside the 66% safe zone -->
   <g transform="translate(512 512) scale(0.86) translate(-512 -512)">

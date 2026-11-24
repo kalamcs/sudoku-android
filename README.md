@@ -234,3 +234,9 @@ WebView is used only to import local storage from a previous installation.
 
 Back up the upload key and its credentials. Keep keystores, signing credentials,
 and `android/local.properties` out of source control.
+
+## License
+
+Copyright (c) 2026 Kalam Shah. Sudoku Android is source available under the
+[PolyForm Noncommercial License 1.0.0](LICENSE). See [NOTICE](NOTICE) for the
+project's required notice and third-party licensing information.

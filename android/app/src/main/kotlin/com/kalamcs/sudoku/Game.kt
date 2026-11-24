@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 package com.kalamcs.sudoku
 
 internal data class PrunedNotes(val cell: Int, val peers: List<Int>)

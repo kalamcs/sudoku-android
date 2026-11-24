@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 package com.kalamcs.sudoku
 
 import android.content.pm.ActivityInfo
@@ -649,13 +652,15 @@ class NativeGameTest {
         }
     }
 
-    @Test fun aboutShowsVersionAndCopyrightDirectly() {
+    @Test fun aboutShowsVersionCopyrightAndSourceLicenseDirectly() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
             onView(withText("Continue Puzzle")).perform(click())
             openMenuDestination("Game menu", "About")
             onView(withText("Version ${BuildConfig.VERSION_NAME}")).check(matches(isDisplayed()))
             onView(withText("Copyright (c) 2026 Kalam Shah")).check(matches(isDisplayed()))
+            onView(withText("Source available under the")).check(matches(isDisplayed()))
+            onView(withText("PolyForm Noncommercial License 1.0.0")).check(matches(isDisplayed()))
             onView(withContentDescription("Open-source licenses")).check(doesNotExist())
             onView(withContentDescription("Back")).perform(click())
             onView(withContentDescription("Difficulty Extreme")).check(matches(isDisplayed()))
