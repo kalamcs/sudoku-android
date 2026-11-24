@@ -551,17 +551,20 @@ class NativeGameTest {
             onView(withText("Sudoku Rules")).check(doesNotExist())
             onView(withId(R.id.page_content)).check { view, error ->
                 if (error != null) throw error
-                val sections = listOf("Basic solving methods", "Advanced solving techniques")
+                val sections = listOf("Basic solving methods", "Advanced solving techniques", "Expert")
                 val headings = TreeIterables.depthFirstViewTraversal(view)
                     .filterIsInstance<TextView>()
                     .map { it.text.toString() }
                     .filter { it in sections }
                 assertEquals(sections, headings)
             }
-            onView(withText(Technique.NAKED_PAIR.title)).perform(scrollTo(), click())
-            onView(withText("Worked example")).check(matches(isDisplayed()))
-            onView(withContentDescription("Back")).perform(click())
-            onView(withText("Strategies")).check(matches(isSelected()))
+            for (technique in listOf(Technique.NAKED_PAIR, Technique.HIDDEN_PAIR, Technique.X_WING, Technique.XY_WING, Technique.SWORDFISH)) {
+                onView(withText(technique.title)).perform(scrollTo(), click())
+                onView(withText("Worked example")).check(matches(isDisplayed()))
+                onView(isAssignableFrom(BoardView::class.java)).check(matches(isDisplayed()))
+                onView(withContentDescription("Back")).perform(click())
+                onView(withText("Strategies")).check(matches(isSelected()))
+            }
             onView(withContentDescription("Back")).perform(click())
             onView(withContentDescription("Difficulty Extreme")).check(matches(isDisplayed()))
         }

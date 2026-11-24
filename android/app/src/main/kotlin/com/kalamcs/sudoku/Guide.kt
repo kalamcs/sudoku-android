@@ -25,17 +25,26 @@ internal object Guide {
     const val PAIR_BOARD = "031004009007030480008020035002093048683040007094000300015076000309500064006009500"
     const val HIDDEN_BOARD = "000000508000815030000000070098403010030020040700090603080002004300047081009086000"
     const val NAKED_BOARD = "530070000600195000098000060800060003400803001700020006060000280000419005000080079"
+    private const val HIDDEN_PAIR_BOARD = "000000009000020708043907000402609800085001206160050000724090000001460007698000030"
+    private const val X_WING_BOARD = "530070000600195000098002060850760003406853701713020006960000280000419005005080079"
+    private const val XY_WING_BOARD = "000000000000020708043907000402609800085001206060050000724090005501460007698000030"
+    private const val SWORDFISH_BOARD = "031004709007030480008020035152093048683041007094600300015076200309500064046009500"
 
     val basicTechniques = listOf(Technique.NAKED_SINGLE, Technique.HIDDEN_SINGLE)
-    val advancedTechniques = listOf(Technique.LOCKED_CANDIDATES, Technique.NAKED_PAIR, Technique.CONTRADICTION)
-    val order = basicTechniques + advancedTechniques
+    val advancedTechniques = listOf(Technique.LOCKED_CANDIDATES, Technique.NAKED_PAIR, Technique.HIDDEN_PAIR, Technique.CONTRADICTION)
+    val expertTechniques = listOf(Technique.X_WING, Technique.XY_WING, Technique.SWORDFISH)
+    val order = basicTechniques + advancedTechniques + expertTechniques
 
     fun definition(technique: Technique) = when (technique) {
         Technique.NAKED_SINGLE -> "Only one digit fits an empty cell."
         Technique.HIDDEN_SINGLE -> "Only one cell in a row, column, or box can hold a particular digit."
         Technique.LOCKED_CANDIDATES -> "A digit's possible spots line up inside one box, eliminating that digit from nearby cells."
         Technique.NAKED_PAIR -> "Two cells in the same row, column, or box share exactly the same two candidates."
+        Technique.HIDDEN_PAIR -> "Two digits can go only in the same two cells of a row, column, or box."
         Technique.CONTRADICTION -> "Follow what a candidate would force and see whether it breaks a Sudoku rule."
+        Technique.X_WING -> "In two different rows, one digit can go only in the same two columns."
+        Technique.XY_WING -> "Three cells with two candidates each force a digit into one of two cells."
+        Technique.SWORDFISH -> "Track one digit across three rows where its candidates span only three columns."
     }
 
     fun lesson(technique: Technique): Lesson {
@@ -86,7 +95,18 @@ internal object Guide {
                 ), listOf(picture(board, column(4), pair, pair + remove, remove,
                     "The outlined pair in column 5 allows only 1 and 8. The red cells show just the candidates being crossed off.",
                     Sudoku.bit(1) or Sudoku.bit(8))),
-                    "The two cells must have exactly the same two candidates and share a row, column, or box.")
+                    "The same idea gives naked triples and quadruples. Look for 3 or 4 cells in one row, column, or box with exactly that many distinct candidates between them. Remove those digits from the other cells in that row, column, or box.")
+            }
+            Technique.HIDDEN_PAIR -> {
+                val board = board(HIDDEN_PAIR_BOARD)
+                val pair = setOf(34, 35)
+                Lesson(summary, listOf(
+                    "Scan row 4 for 1 and 5. Both digits can go only in columns 8 and 9.",
+                    "Column 8 shows 1, 5, and 7. Column 9 shows 1, 3, and 5. The extra notes hide the pair, but the row still needs one 1 and one 5 in those two cells.",
+                    "Cross off 7 in row 4, column 8, and 3 in row 4, column 9. Keep 1 and 5 in both cells until you can tell which goes where.",
+                ), listOf(picture(board, row(3), pair, row(3), caption =
+                    "Look for the small 1s and 5s across the shaded row. They appear only in the two outlined cells.")),
+                    "The same idea gives hidden triples and quadruples. When 3 or 4 digits are confined to that many cells in one row, column, or box, keep those digits in those cells and remove their other candidates.")
             }
             Technique.CONTRADICTION -> {
                 val original = board(PROOF_BOARD)
@@ -108,6 +128,44 @@ internal object Guide {
                     picture(deadEnd, row(6), blockers, emptySet(), setOf(54, 62),
                         "After following the trial, the outlined 7s block both remaining spots for 7 in row 7."),
                 ), "Follow forced moves until you can name the rule that fails. The hint can show the supporting steps for each move.")
+            }
+            Technique.X_WING -> {
+                val board = board(X_WING_BOARD)
+                val corners = setOf(18, 24, 72, 78)
+                val remove = setOf(6)
+                Lesson(summary, listOf(
+                    "Scan rows 3 and 9 for candidate 1. In each row, 1 can go only in column 1 or column 7. These four cells make a rectangle.",
+                    "If row 3 puts 1 in column 1, row 9 must put it in column 7. If row 3 puts 1 in column 7, row 9 must put it in column 1.",
+                    "Either way, rows 3 and 9 use up the 1 in both columns. Remove candidate 1 from row 1, column 7.",
+                ), listOf(picture(board, row(2) + row(8) + column(0) + column(6), corners, corners + remove, remove,
+                    "Only candidate 1 is shown. The four outlined corners reserve the 1s in columns 1 and 7. The red 1 can be crossed off.", Sudoku.bit(1))),
+                    "You can also start with two columns. When their two spots for a digit line up in the same two rows, remove that digit from those rows outside the two columns.")
+            }
+            Technique.XY_WING -> {
+                val board = board(XY_WING_BOARD)
+                val wing = setOf(31, 35, 76)
+                val remove = setOf(80)
+                Lesson(summary, listOf(
+                    "Start at row 4, column 5. It has only 3 or 7. This cell is the pivot.",
+                    "Find two cells that share a row, column, or box with the pivot. These are the pincers. Row 4, column 9 has 1 or 3, and row 9, column 5 has 1 or 7.",
+                    "If the pivot is 3, the first pincer must be 1. If the pivot is 7, the second pincer must be 1.",
+                    "Row 9, column 9 shares column 9 with the first pincer and row 9 with the second. It cannot be 1 in either case. Cross off its 1.",
+                ), listOf(picture(board, row(3) + column(4), wing, wing + remove, remove,
+                    "The pivot sits at the crossing of the shaded row and column. The other outlined cells are the pincers. The red 1 is the elimination.",
+                    Sudoku.bit(1) or Sudoku.bit(3) or Sudoku.bit(7))),
+                    "Each pincer shares a different digit with the pivot. Remove the digit shared by the pincers from any other cell that shares a row, column, or box with both pincers.")
+            }
+            Technique.SWORDFISH -> {
+                val board = board(SWORDFISH_BOARD)
+                val pattern = setOf(0, 7, 39, 43, 72, 75)
+                val remove = setOf(9, 52)
+                Lesson(summary, listOf(
+                    "Track candidate 2 in rows 1, 5, and 9. In row 1 it can go in columns 1 and 8. In row 5 it can go in columns 4 and 8. In row 9 it can go in columns 1 and 4.",
+                    "The three rows each need a 2. Those 2s must occupy different columns and only columns 1, 4, and 8 are available. Each of those columns therefore gets its 2 from one of the three rows.",
+                    "Cross off candidate 2 elsewhere in those columns. In this board, remove it from row 2, column 1, and row 6, column 8.",
+                ), listOf(picture(board, row(0) + row(4) + row(8) + column(0) + column(3) + column(7), pattern, pattern + remove, remove,
+                    "Only candidate 2 is shown. The outlined cells hold the three rows' possible 2s. The two red 2s can be crossed off.", Sudoku.bit(2))),
+                    "Swordfish also works with columns as the starting lines. Each line can have two or three spots. Together, those spots must span exactly three crossing lines.")
             }
         }
     }
@@ -169,6 +227,11 @@ internal class GuideScreen(private val context: Context, private val ui: Ui) {
         ui.add(advanced, ui.text("When the basic checks stall, look for patterns that let you cross off candidates. After each elimination, check for a single you can fill."), 8)
         for (technique in Guide.advancedTechniques) addLessonLink(advanced, technique, onLesson)
         ui.add(page, advanced, 12)
+
+        val expert = ui.card().apply { background = ui.dashboardSurface(ui.palette.cardRadius) }
+        ui.add(expert, ui.heading("Expert", 20))
+        for (technique in Guide.expertTechniques) addLessonLink(expert, technique, onLesson)
+        ui.add(page, expert, 12)
     }
 
     private fun addRule(page: LinearLayout, sample: BoardSample, sampleWidth: Int, explanation: String) {

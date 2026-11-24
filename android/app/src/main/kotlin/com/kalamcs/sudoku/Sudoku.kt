@@ -19,7 +19,11 @@ internal enum class Technique(val title: String) {
     HIDDEN_SINGLE("Hidden single"),
     LOCKED_CANDIDATES("Locked candidates"),
     NAKED_PAIR("Naked pair"),
+    HIDDEN_PAIR("Hidden pair"),
     CONTRADICTION("Proof by contradiction"),
+    X_WING("X-Wing"),
+    XY_WING("XY-Wing"),
+    SWORDFISH("Swordfish"),
 }
 
 internal data class Puzzle(val difficulty: Difficulty, val givens: IntArray, val solution: IntArray)
