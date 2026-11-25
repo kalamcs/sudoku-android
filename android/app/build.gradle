@@ -1,9 +1,18 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 apply plugin: 'com.google.android.gms.oss-licenses-plugin'
 
 if (file('google-services.json').exists()) {
     apply plugin: 'com.google.gms.google-services'
+}
+
+def projectLicenseAssets = layout.buildDirectory.dir('generated/projectLicenseAssets')
+def copyProjectLicense = tasks.register('copyProjectLicense', Copy) {
+    from(rootProject.file('../LICENSE'), rootProject.file('../NOTICE'))
+    into(projectLicenseAssets)
 }
 
 android {
@@ -20,6 +29,7 @@ android {
     buildFeatures {
         buildConfig true
     }
+    sourceSets.main.assets.srcDir(projectLicenseAssets)
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -30,6 +40,10 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+}
+
+tasks.named('preBuild') {
+    dependsOn(copyProjectLicense)
 }
 
 kotlin {

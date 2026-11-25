@@ -1,5 +1,9 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 package com.kalamcs.sudoku
 
+import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -11,6 +15,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.widget.AppCompatButton
 import androidx.core.view.ViewCompat
@@ -29,6 +34,7 @@ import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.RootMatchers.isPlatformPopup
+import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.espresso.matcher.ViewMatchers.hasErrorText
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
@@ -105,13 +111,92 @@ class NativeGameTest {
         }
     }
 
+    @Test fun hintShowsCandidateEliminationsWithAReadOnlyBoardPreview() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Continue Puzzle")).perform(click())
+            onView(withText("Hint")).perform(scrollTo(), click())
+            waitForCandidateHint()
+            onView(withText("Row 5, column 4 · 2")).check(matches(isDisplayed()))
+            onView(withText("Show board preview")).perform(scrollTo(), click())
+            onView(withText("Hide board preview")).check(matches(isDisplayed()))
+            onView(allOf(withText("Locked candidates"), isAssignableFrom(AppCompatButton::class.java)))
+                .perform(scrollTo(), click())
+            onView(withText("Worked example")).check(matches(isDisplayed()))
+            pressBack()
+            onView(withText("Show first cell")).check(matches(isDisplayed()))
+            onView(withText("Hide board preview")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Show first cell")).perform(click())
+            assertCellDescription(39, "Row 5, column 4, empty")
+            onView(withText("Undo")).check(matches(not(isEnabled())))
+        }
+    }
+
+    @Test fun repeatHintWaitsUntilTheSuggestedCandidatesAreCrossedOff() {
+        installFixture { it.autoNotes() }
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Continue Puzzle")).perform(click())
+            val hintButton = onView(withText("Hint"))
+            val firstCandidate = onView(withText("Row 5, column 4 · 2")).inRoot(isDialog())
+            val close = onView(withText("Close")).inRoot(isDialog())
+
+            hintButton.perform(scrollTo(), click())
+            waitForCandidateHint()
+            firstCandidate.check(matches(isDisplayed()))
+            close.perform(click())
+            hintButton.perform(scrollTo(), click())
+            firstCandidate.check(matches(isDisplayed()))
+            close.perform(click())
+
+            onView(withText("Notes: Off")).perform(scrollTo(), click())
+            val board = onView(isAssignableFrom(BoardView::class.java))
+            val digit = onView(withText("2"))
+            board.perform(scrollTo(), tapCell(39))
+            digit.perform(scrollTo(), click())
+            hintButton.perform(scrollTo(), click())
+            waitForCandidateHint()
+            firstCandidate.check(doesNotExist())
+            onView(withText("Row 5, column 5 · 2")).inRoot(isDialog()).check(matches(isDisplayed()))
+            close.perform(click())
+
+            board.perform(scrollTo(), tapCell(40))
+            digit.perform(scrollTo(), click())
+            hintButton.perform(scrollTo(), click())
+            waitForCandidateHint()
+            firstCandidate.check(doesNotExist())
+        }
+    }
+
+    @Test fun hintSkipsEliminationsRecordedBeforeItWasOpened() {
+        installFixture { game ->
+            game.autoNotes()
+            game.notesMode = true
+            game.select(39)
+            game.enter(2)
+            game.select(40)
+            game.enter(2)
+            game.notesMode = false
+        }
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Continue Puzzle")).perform(click())
+            onView(withText("Hint")).perform(scrollTo(), click())
+            waitForCandidateHint()
+            onView(withText("Row 5, column 4 · 2")).check(doesNotExist())
+            onView(withText("Row 5, column 5 · 2")).check(doesNotExist())
+        }
+    }
+
+    private fun waitForCandidateHint() {
+        onView(withText("Candidates to cross off")).inRoot(isDialog()).check(matches(isDisplayed()))
+    }
+
     @Test fun replayCanBeCompletedWithoutChangingTheWinRecord() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val store = GameStore(context)
         val solution = checkNotNull(Sudoku.solve(checkNotNull(Sudoku.decode(Guide.PROOF_BOARD))))
         val givens = solution.copyOf().apply { this[0] = 0 }
         val before = store.records().getValue(Difficulty.EASY).wins
-        store.save(Game(Puzzle(Difficulty.EASY, givens, solution)), SystemClock.elapsedRealtime())
+        store.save(Game(Puzzle(Difficulty.EASY, givens, solution), elapsedMs = 11_000), SystemClock.elapsedRealtime())
 
         ActivityScenario.launch(SudokuActivity::class.java).use {
             onView(withText("Continue Puzzle")).perform(click())
@@ -134,6 +219,19 @@ class NativeGameTest {
             onView(withText("Discard")).check(doesNotExist())
             scenario.onActivity { it.onConfigurationChanged(Configuration(it.resources.configuration)) }
             onView(withText("Continue Puzzle")).check(matches(isDisplayed()))
+        }
+    }
+
+    @Test fun startingNewGameAsksBeforeReplacingAnUntouchedSaveShownOnHome() {
+        installFixture(elapsedMs = 11_000)
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Continue Puzzle")).check(matches(isDisplayed()))
+            onView(allOf(withText("Easy"), isAssignableFrom(AppCompatButton::class.java))).perform(scrollTo(), click())
+            onView(withText("Start a new easy game?")).check(matches(isDisplayed()))
+            onView(withText("This will replace your saved puzzle.")).check(matches(isDisplayed()))
+            onView(withText("Cancel")).perform(click())
+            onView(withText("Continue Puzzle")).perform(click())
+            onView(withContentDescription("Difficulty Extreme")).check(matches(isDisplayed()))
         }
     }
 
@@ -161,29 +259,115 @@ class NativeGameTest {
         }
     }
 
-    @Test fun entryOrderControlKeepsTheDigitSelectedAndCanReturnToCellFirst() {
+    @Test fun entryOrderSettingKeepsTheDigitSelectedAndCanReturnToCellFirst() {
         installFixture()
-        ActivityScenario.launch(SudokuActivity::class.java).use {
-            val board = onView(isAssignableFrom(BoardView::class.java))
-            onView(withText("Continue Puzzle")).perform(click())
-            onView(withText("Cell first")).perform(scrollTo()).check(matches(isSelected()))
-            onView(withText("Digit first")).perform(scrollTo(), click()).check(matches(isSelected()))
-            onView(withText("5")).perform(scrollTo(), click()).check(matches(isSelected()))
-            assertCellDescription(1, "Row 1, column 2, empty")
-            board.perform(tapCell(0), tapCell(1), tapCell(36))
-            assertCellDescription(0, "Row 1, column 1, given 6")
-            assertCellDescription(1, "Row 1, column 2, 5")
-            assertCellDescription(36, "Row 5, column 1, 5")
-            onView(withText("5")).check(matches(isSelected()))
-            onView(withText("5")).perform(click()).check(matches(not(isSelected())))
-            board.perform(tapCell(2))
-            assertCellDescription(2, "Row 1, column 3, empty")
+        val preferences = AppearanceStore(InstrumentationRegistry.getInstrumentation().targetContext)
+        val initial = preferences.load()
+        preferences.save(initial.copy(entryOrder = EntryOrder.CELL_FIRST))
+        try {
+            ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
+                val board = onView(isAssignableFrom(BoardView::class.java))
+                val five = onView(withText("5"))
+                onView(withText("Continue Puzzle")).perform(click())
+                openMenuDestination("Game menu", "Settings")
+                onView(withContentDescription("Entry order, Cell first")).perform(scrollTo(), click())
+                onView(withText("Digit first")).perform(click())
+                scenario.recreate()
+                onView(withContentDescription("Entry order, Digit first")).perform(scrollTo()).check(matches(isDisplayed()))
+                onView(withContentDescription("Back")).perform(click())
+                onView(withText("Digit first")).check(doesNotExist())
+                five.perform(scrollTo(), click()).check(matches(isSelected()))
+                assertCellDescription(1, "Row 1, column 2, empty")
+                five.check { view, _ -> assertEquals("6 placements remaining", ViewCompat.getStateDescription(view!!)) }
+                board.perform(tapCell(0), tapCell(1), tapCell(36))
+                assertCellDescription(0, "Row 1, column 1, given 6")
+                assertCellDescription(1, "Row 1, column 2, 5")
+                assertCellDescription(36, "Row 5, column 1, 5")
+                five.check(matches(isSelected()))
+                five.check { view, _ -> assertEquals("4 placements remaining", ViewCompat.getStateDescription(view!!)) }
+                five.perform(click()).check(matches(not(isSelected())))
+                board.perform(tapCell(2))
+                assertCellDescription(2, "Row 1, column 3, empty")
 
-            onView(withText("Cell first")).perform(scrollTo(), click()).check(matches(isSelected()))
-            board.perform(tapCell(2))
-            assertCellDescription(2, "Row 1, column 3, empty")
-            onView(withText("3")).perform(scrollTo(), click())
-            assertCellDescription(2, "Row 1, column 3, 3")
+                openMenuDestination("Game menu", "Settings")
+                onView(withContentDescription("Entry order, Digit first")).perform(scrollTo(), click())
+                onView(withText("Cell first")).perform(click())
+                onView(withContentDescription("Back")).perform(click())
+                board.perform(tapCell(2))
+                onView(withText("3")).perform(scrollTo(), click())
+                assertCellDescription(2, "Row 1, column 3, 3")
+            }
+        } finally {
+            preferences.save(initial)
+        }
+    }
+
+    @Test fun homeHidesAnUntouchedTenSecondSaveAndShowsEarlierEdits() {
+        installFixture(elapsedMs = 10_000)
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Start New Puzzle")).check(matches(isDisplayed()))
+            onView(withText("Continue Puzzle")).check(doesNotExist())
+        }
+        installFixture(elapsedMs = 0) {
+            it.notesMode = true
+            it.enter(5)
+        }
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Continue Puzzle")).check(matches(isDisplayed()))
+        }
+    }
+
+    @Test fun homeUsesSideBySidePanelsInLandscapeWithRoomForStatistics() {
+        ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val landscape = Configuration(activity.resources.configuration).apply {
+                    orientation = Configuration.ORIENTATION_LANDSCAPE
+                    fontScale = 1f
+                }
+                val context = activity.createConfigurationContext(landscape)
+                val ui = Ui(context)
+                val puzzles = ui.text("Start New Puzzle")
+                val stats = ui.text("Statistics")
+                val actions = ui.text("Settings")
+                val panels = HomePanels(context, ui, puzzles, stats, actions)
+                fun size(width: Int) {
+                    panels.measure(View.MeasureSpec.makeMeasureSpec(ui.dp(width), View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                    panels.layout(0, 0, panels.measuredWidth, panels.measuredHeight)
+                }
+                size(840)
+                assertTrue(stats.left > puzzles.right)
+                assertEquals(puzzles.top, stats.top)
+                assertEquals(puzzles.left, actions.left)
+                assertTrue(actions.top > puzzles.bottom)
+
+                size(480)
+                assertEquals(puzzles.left, stats.left)
+                assertTrue(stats.top > puzzles.bottom)
+                assertTrue(actions.top > stats.bottom)
+            }
+        }
+    }
+
+    @Test fun landscapeHomeCanUseTheFullPageWidth() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
+            scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+            val deadline = SystemClock.uptimeMillis() + 8_000
+            do {
+                var measured = false
+                scenario.onActivity { activity ->
+                    val frame = activity.findViewById<ViewGroup>(R.id.page_content)
+                    if (activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+                        frame.width > frame.height && frame.width > 0 && !frame.isLayoutRequested) {
+                        assertEquals(frame.width, frame.getChildAt(0).width)
+                        measured = true
+                    }
+                }
+                if (measured) return
+                SystemClock.sleep(150)
+            } while (SystemClock.uptimeMillis() < deadline)
+            throw AssertionError("The landscape dashboard did not finish laying out")
         }
     }
 
@@ -201,7 +385,7 @@ class NativeGameTest {
         }
     }
 
-    @Test fun autoFitsEightPhoneViewportsAfterSystemInsets() {
+    @Test fun autoFitsPhoneViewportsAfterSystemInsets() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
             onView(withText("Continue Puzzle")).perform(click())
@@ -224,9 +408,8 @@ class NativeGameTest {
                 val originalHeight = layout.height
                 val interactive = contents.filterIsInstance<AppCompatButton>()
                 val header = (contents.single { it.contentDescription == "Back to home" }.parent as View).parent as View
-                val entryOrder = text.single { it.text == "Digit first" }.parent as View
                 for ((widthDp, heightDp) in listOf(320 to 568, 360 to 640, 393 to 852, 430 to 932,
-                    568 to 320, 640 to 360, 852 to 393, 932 to 430, 700 to 1200, 430 to 640)) {
+                    568 to 320, 640 to 360, 764 to 347, 852 to 393, 932 to 430, 700 to 1200, 430 to 640)) {
                     val landscape = widthDp > heightDp
                     val width = dp(widthDp - if (landscape) 48 else 0)
                     val height = dp(heightDp - if (landscape) 24 else 72)
@@ -237,26 +420,27 @@ class NativeGameTest {
                         "viewport ${layout.height}px, board ${board.height}px)", layout.canScrollVertically(1))
                     assertEquals(landscape, layout.sideBySide)
                     if (landscape) {
+                        assertEquals("$viewport automatic keypad", if (widthDp >= 764) 9 else 3, layout.keypadColumns)
                         assertTrue("$viewport must keep the board and controls separate", board.right < toolbar.left)
                         val minPanel = maxOf(5 * dp(44) + 4 * dp(4),
                             if (layout.keypadColumns == 9) 9 * dp(44) + 8 * dp(2) else 0)
-                        val entryBelowBoard = entryOrder.left == board.left
-                        val entrySpace = if (entryBelowBoard) entryOrder.height + dp(6) else 0
-                        val largestBoard = minOf(height - 2 * dp(4) - entrySpace, width - 2 * dp(8) - dp(10) - minPanel)
+                        val largestBoard = minOf(height - 2 * dp(4), width - 2 * dp(8) - dp(10) - minPanel)
                         assertEquals("$viewport should maximize board height", largestBoard, board.height)
                         assertEquals("$viewport should align the header and board", board.top, header.top)
                         assertTrue("$viewport should place navigation in the right pane", header.left > board.right)
-                        assertTrue("$viewport should place the entry toggle at the bottom",
-                            entryOrder.top >= if (entryBelowBoard) board.bottom else shortcuts.bottom)
-                    } else {
-                        assertTrue("$viewport should place the entry toggle below the shortcuts", entryOrder.top >= shortcuts.bottom)
-                        if (heightDp >= 852) {
-                            assertEquals("$viewport should use the entire width between side margins", width - 2 * dp(8), board.width)
-                        }
+                    } else if (heightDp >= 852) {
+                        assertEquals("$viewport should use the entire width between side margins", width - 2 * dp(8), board.width)
                     }
                     if (widthDp == 430 && heightDp == 640) assertEquals(9, layout.keypadColumns)
                     if (widthDp == 393 || heightDp >= 852 && !landscape) assertEquals(3, layout.keypadColumns)
-                    val digits = interactive.filter { it.text.toString().matches(Regex("[1-9]")) }
+                    val digits = interactive.filterIsInstance<DigitKey>()
+                    assertEquals(9, digits.size)
+                    if (landscape && layout.keypadColumns == 9) {
+                        val keypad = digits.first().parent as View
+                        assertEquals(1, digits.map { it.top }.distinct().size)
+                        assertTrue("$viewport places shortcuts below the keypad", shortcuts.top >= keypad.bottom)
+                    }
+                    assertTrue(digits.all { it.stackedCount == (layout.keypadColumns == 9) })
                     assertTrue("$viewport keypad touch targets", digits.all { it.width >= dp(44) && it.height >= dp(44) })
                     val origin = IntArray(2).apply(layout::getLocationOnScreen)
                     for (button in interactive) {
@@ -468,13 +652,15 @@ class NativeGameTest {
         }
     }
 
-    @Test fun aboutShowsVersionAndCopyrightDirectly() {
+    @Test fun aboutShowsVersionCopyrightAndSourceLicenseDirectly() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use {
             onView(withText("Continue Puzzle")).perform(click())
             openMenuDestination("Game menu", "About")
             onView(withText("Version ${BuildConfig.VERSION_NAME}")).check(matches(isDisplayed()))
             onView(withText("Copyright (c) 2026 Kalam Shah")).check(matches(isDisplayed()))
+            onView(withText("Source available under the")).check(matches(isDisplayed()))
+            onView(withText("PolyForm Noncommercial License 1.0.0")).check(matches(isDisplayed()))
             onView(withContentDescription("Open-source licenses")).check(doesNotExist())
             onView(withContentDescription("Back")).perform(click())
             onView(withContentDescription("Difficulty Extreme")).check(matches(isDisplayed()))
@@ -576,7 +762,7 @@ class NativeGameTest {
 
     @Test fun howToPlayOpensAWorkedLessonFromTheGameMenu() {
         installFixture()
-        ActivityScenario.launch(SudokuActivity::class.java).use {
+        ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
             onView(withText("Continue Puzzle")).perform(click())
             openMenuDestination("Game menu", "How to Play")
             onView(withText("Rules")).check(matches(isSelected()))
@@ -594,13 +780,17 @@ class NativeGameTest {
                 assertEquals(sections, headings)
             }
             for (technique in listOf(Technique.NAKED_PAIR, Technique.HIDDEN_PAIR, Technique.X_WING, Technique.XY_WING, Technique.SWORDFISH)) {
-                onView(withText(technique.title)).perform(scrollTo(), click())
+                val techniqueButton = onView(withText(technique.title)).perform(scrollTo())
+                var scrollY = 0
+                scenario.onActivity { scrollY = it.findViewById<ScrollView>(R.id.page_scroll).scrollY }
+                techniqueButton.perform(click())
                 onView(withText("Worked example")).check(matches(isDisplayed()))
                 onView(isAssignableFrom(BoardView::class.java)).check(matches(isDisplayed()))
                 onView(withContentDescription("Back")).perform(click())
                 onView(withText("Strategies")).check(matches(isSelected()))
+                scenario.onActivity { assertEquals(scrollY, it.findViewById<ScrollView>(R.id.page_scroll).scrollY) }
             }
-            onView(withContentDescription("Back")).perform(click())
+            pressBack()
             onView(withContentDescription("Difficulty Extreme")).check(matches(isDisplayed()))
         }
     }
@@ -668,10 +858,11 @@ class NativeGameTest {
         }
     }
 
-    private fun installFixture() {
+    private fun installFixture(elapsedMs: Long = 11_000, edit: (Game) -> Unit = {}) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val board = checkNotNull(Sudoku.decode(Guide.PROOF_BOARD))
-        val game = Game(Puzzle(Difficulty.EXTREME, board, checkNotNull(Sudoku.solve(board))))
+        val game = Game(Puzzle(Difficulty.EXTREME, board, checkNotNull(Sudoku.solve(board))), elapsedMs = elapsedMs)
+        edit(game)
         GameStore(context).save(game, SystemClock.elapsedRealtime())
     }
 

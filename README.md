@@ -17,10 +17,11 @@ through 9 exactly once. The starting clues stay fixed.
   matching entries and pencil marks. With a starting clue selected, tap a
   keypad digit to highlight its matches. Completed digits stay gray on the
   keypad. Duplicate entries appear in red.
-- At the bottom of the game, switch from **Cell first** to **Digit first** to
+- In **Settings → Entry order**, switch from **Cell first** to **Digit first** to
   pick a keypad digit before tapping cells. The digit stays selected as you
   enter it in different cells. Tap it again to clear the selection. Notes mode
-  works with either entry order.
+  works with either entry order. Each key shows the number of placements left
+  and displays a check mark when all nine are in place.
 - Pinch the board to zoom up to 3×. Drag with one finger to move around the
   enlarged board, then pinch inward or tap **Reset zoom** to see the full board.
 - Toggle **Notes: Off** or **Notes: On** to pencil in candidates.
@@ -30,24 +31,32 @@ through 9 exactly once. The starting clues stay fixed.
   marks it removed are restored. Undo and redo track entries and notes, including
   when you close the app and continue the saved puzzle later.
 - **Hint** counts incorrect entries first and offers to highlight them. On a
-  correct board, it explains a forced placement and can select the cell. Open
-  the reasoning under a step to see the supporting constraints.
+  correct board, it works through the techniques in How to Play. A hint can
+  explain a placement or show which candidates to cross off. Hint skips
+  candidates you already crossed off, including removals in saved undo history.
+  After you cross off the last candidate in a hint, the next request advances.
+  If you open a technique from a hint, Back reopens the hint. Proof by
+  contradiction is the last resort. Open the reasoning under a step to see the
+  supporting constraints.
 - **Check Progress** reports incorrect entries and offers to highlight them. **Restart Puzzle**
   opens the reset confirmation. The timer pauses in the game menu and runs
   while a hint or an error result is open.
 - **Pause** and Android Back save the puzzle and return to Home. Tap
-  **Continue Puzzle** to pick up where you left off. After waking the phone or
+  **Continue Puzzle** to pick up where you left off. Home hides the card for an
+  untouched puzzle played for 10 seconds or less. After waking the phone or
   returning to the app, an open puzzle resumes automatically.
   The home stats table shows solved puzzles, best times and dates, and average
-  times by difficulty. The timer also stops when you leave the app or open the
+  times by difficulty. In landscape, Home puts Statistics beside the puzzle
+  actions when there is room. The timer also stops when you leave the app or open the
   guide from a game.
 - **Screen timeout during a game** follows Android by default. Settings can
   keep the display awake for at least two or three minutes after an interaction,
   or for as long as the puzzle is open in the foreground.
 - In **Settings → Number Keypad Layout**, choose **Auto**, **3×3**, or **1×9**.
   Auto measures the board and controls within the current safe area. It
-  favors 3×3 when both layouts give the board similar space, and chooses
-  1×9 when it makes the board meaningfully larger and can keep 44 dp keys.
+  favors 1×9 in landscape when it can keep 44 dp keys by reducing each side
+  of the board by up to 44 dp. In portrait it favors 3×3, using 1×9 when it gives
+  the board meaningfully more space and can keep 44 dp keys.
   A manual 1×9 choice falls back to 3×3 when the row cannot fit.
 - After a win, choose **View board** and then **Replay Puzzle** to solve it again
   for practice. Only the first completion is recorded in your stats.
@@ -225,3 +234,9 @@ WebView is used only to import local storage from a previous installation.
 
 Back up the upload key and its credentials. Keep keystores, signing credentials,
 and `android/local.properties` out of source control.
+
+## License
+
+Copyright (c) 2026 Kalam Shah. Sudoku Android is source available under the
+[PolyForm Noncommercial License 1.0.0](LICENSE). See [NOTICE](NOTICE) for the
+project's required notice and third-party licensing information.

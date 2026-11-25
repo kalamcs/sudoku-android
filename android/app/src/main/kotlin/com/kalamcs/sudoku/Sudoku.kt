@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 package com.kalamcs.sudoku
 
 import java.util.concurrent.CancellationException
@@ -31,20 +34,31 @@ internal data class Puzzle(val difficulty: Difficulty, val givens: IntArray, val
 internal data class HintStep(
     val text: String,
     val technique: Technique? = null,
+    val heading: String? = null,
     val details: ((HintBudget) -> List<HintStep>)? = null,
 )
 
-internal data class Hint(val cell: Int, val digit: Int, val technique: Technique, val steps: List<HintStep>)
+internal data class CandidateRemoval(val cell: Int, val digit: Int)
+
+internal data class Hint(
+    val cell: Int,
+    val digit: Int,
+    val technique: Technique,
+    val steps: List<HintStep>,
+    val removals: List<CandidateRemoval> = emptyList(),
+    val focus: Map<Int, Int> = emptyMap(),
+    val heading: String = technique.title,
+)
 
 internal class HintTimedOut : RuntimeException()
 
-internal class HintBudget(timeoutMillis: Long = 1_500) {
-    private val started = System.nanoTime()
+internal class HintBudget(timeoutMillis: Long = 1_500, private val nanoTime: () -> Long = System::nanoTime) {
+    private val started = nanoTime()
     private val limit = TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
 
     fun check() {
         if (Thread.currentThread().isInterrupted) throw CancellationException()
-        if (System.nanoTime() - started >= limit) throw HintTimedOut()
+        if (nanoTime() - started >= limit) throw HintTimedOut()
     }
 }
 
@@ -238,9 +252,10 @@ internal object Sudoku {
     private data class Move(val cell: Int, val digit: Int, val unit: SudokuUnit? = null) {
         val technique get() = if (unit == null) Technique.NAKED_SINGLE else Technique.HIDDEN_SINGLE
     }
-    private data class Elimination(
+    internal data class Elimination(
         val cells: List<Int>, val mask: Int, val needs: List<Int>,
-        val reason: HintStep, val removed: MutableList<Int> = mutableListOf(),
+        val reason: HintStep, val focus: List<Int>, val removed: MutableList<Int> = mutableListOf(),
+        val focusNotes: Map<Int, Int> = emptyMap(),
     )
     private data class Analysis(val move: Move?, val candidates: IntArray, val eliminations: List<Elimination>)
 
@@ -268,7 +283,7 @@ internal object Sudoku {
                 val reason = "In ${unit.name}, ${digit} can only go in ${places.joinToString(" or ") { placeIn(unit, it) }}. " +
                     "Those cells share ${other.name}. Cross off ${digit} elsewhere in ${other.name}, outside ${unit.name}."
                 return Elimination(affected, bit(digit), unit.cells.filter { it !in other.cells }.map { it * 10 + digit },
-                    HintStep(reason, Technique.LOCKED_CANDIDATES))
+                    HintStep(reason, Technique.LOCKED_CANDIDATES), places)
             }
         }
         return null
@@ -284,25 +299,162 @@ internal object Sudoku {
                 val needs = cells.flatMap { cell -> digitsIn(ALL and mask.inv()).map { cell * 10 + it } }
                 val reason = "The cells at ${name(cells[0])} and ${name(cells[1])} must take " +
                     "${join(digitsIn(mask))} in some order. Cross off both digits elsewhere in ${unit.name}."
-                return Elimination(affected, mask, needs, HintStep(reason, Technique.NAKED_PAIR))
+                return Elimination(affected, mask, needs, HintStep(reason, Technique.NAKED_PAIR), cells)
             }
         }
         return null
     }
 
-    private fun analyze(board: IntArray, budget: HintBudget? = null): Analysis {
+    private fun choose(items: List<Int>, size: Int, match: (List<Int>) -> Elimination?): Elimination? {
+        val chosen = mutableListOf<Int>()
+        fun visit(start: Int): Elimination? {
+            val left = size - chosen.size
+            if (left == 0) return match(chosen)
+            for (index in start..items.size - left) {
+                chosen.add(items[index])
+                val found = visit(index + 1)
+                chosen.removeAt(chosen.lastIndex)
+                if (found != null) return found
+            }
+            return null
+        }
+        return visit(0)
+    }
+
+    private fun nakedSubset(candidates: IntArray, size: Int): Elimination? {
+        val heading = if (size == 3) "Naked triple" else "Naked quadruple"
+        for (unit in units) {
+            val eligible = unit.cells.filter { Integer.bitCount(candidates[it]) in 2..size }
+            val step = choose(eligible, size) { cells ->
+                val mask = cells.fold(0) { union, cell -> union or candidates[cell] }
+                if (Integer.bitCount(mask) != size) return@choose null
+                val affected = unit.cells.filter { it !in cells && candidates[it] and mask != 0 }
+                if (affected.isEmpty()) return@choose null
+                val needs = cells.flatMap { cell -> digitsIn(ALL and mask.inv()).map { cell * 10 + it } }
+                val reason = "At ${join(cells.map(::name))}, the only candidates across these cells are ${join(digitsIn(mask))}. " +
+                    "These cells need one of each, so cross off those candidates from the other cells in ${unit.name}."
+                Elimination(affected, mask, needs, HintStep(reason, Technique.NAKED_PAIR, heading), cells.toList())
+            }
+            if (step != null) return step
+        }
+        return null
+    }
+
+    private fun hiddenSubset(candidates: IntArray, size: Int): Elimination? {
+        val heading = when (size) {
+            2 -> Technique.HIDDEN_PAIR.title
+            3 -> "Hidden triple"
+            else -> "Hidden quadruple"
+        }
+        for (unit in units) {
+            val positions = Array(SIZE + 1) { digit -> places(unit, digit, candidates) }
+            val eligible = digits.filter { positions[it].size in 2..size }
+            val step = choose(eligible, size) { chosen ->
+                val focus = chosen.flatMap { positions[it] }.distinct()
+                if (focus.size != size) return@choose null
+                val keep = chosen.fold(0) { mask, digit -> mask or bit(digit) }
+                val remove = ALL and keep.inv()
+                val affected = focus.filter { candidates[it] and remove != 0 }
+                if (affected.isEmpty()) return@choose null
+                val needs = unit.cells.filter { it !in focus }.flatMap { cell -> chosen.map { cell * 10 + it } }
+                val reason = "In ${unit.name}, ${join(chosen)} can go only in ${join(focus.map(::name))}. " +
+                    "Keep those ${if (size == 2) "two digits" else "digits"} in these cells and cross off their other candidates."
+                Elimination(affected, remove, needs, HintStep(reason, Technique.HIDDEN_PAIR, heading), focus)
+            }
+            if (step != null) return step
+        }
+        return null
+    }
+
+    internal fun fish(candidates: IntArray, size: Int, budget: HintBudget? = null): Elimination? {
+        val technique = if (size == 2) Technique.X_WING else Technique.SWORDFISH
+        for (kind in listOf(UnitKind.ROW, UnitKind.COLUMN)) {
+            val crossKind = if (kind == UnitKind.ROW) UnitKind.COLUMN else UnitKind.ROW
+            val lines = units.filter { it.kind == kind }
+            fun cross(cell: Int) = if (kind == UnitKind.ROW) cell % SIZE else cell / SIZE
+            for (digit in digits) {
+                budget?.check()
+                val positions = lines.map { places(it, digit, candidates) }
+                val eligible = lines.indices.filter { positions[it].size in 2..size }
+                val step = choose(eligible, size) { chosen ->
+                    val focus = chosen.flatMap { positions[it] }
+                    val crossing = focus.map(::cross).distinct().sorted()
+                    if (crossing.size != size) return@choose null
+                    val affected = lines.filter { it.index !in chosen }.flatMap { line ->
+                        positions[line.index].filter { cross(it) in crossing }
+                    }
+                    if (affected.isEmpty()) return@choose null
+                    val needs = chosen.flatMap { line -> lines[line].cells.filter { cross(it) !in crossing }.map { it * 10 + digit } }
+                    val baseNames = "${kind.label}s ${join(chosen.map { it + 1 })}"
+                    val crossNames = "${crossKind.label}s ${join(crossing.map { it + 1 })}"
+                    val reason = "In $baseNames, the only spots for $digit lie in $crossNames. " +
+                        "Each ${kind.label} needs its own $digit, using up all of those crossing lines. " +
+                        "Cross off $digit in $crossNames outside $baseNames."
+                    Elimination(affected, bit(digit), needs, HintStep(reason, technique), focus)
+                }
+                if (step != null) return step
+            }
+        }
+        return null
+    }
+
+    private fun xyWing(candidates: IntArray): Elimination? {
+        for (pivot in indexes) {
+            val middle = candidates[pivot]
+            if (Integer.bitCount(middle) != 2) continue
+            for (first in peers[pivot]) {
+                val firstMask = candidates[first]
+                val shared = firstMask and middle
+                if (Integer.bitCount(firstMask) != 2 || Integer.bitCount(shared) != 1) continue
+                val extra = firstMask xor shared
+                val other = middle xor shared
+                if (shared > other) continue
+                for (second in peers[pivot]) {
+                    if (candidates[second] != (other or extra)) continue
+                    val affected = peers[first].filter { it in peers[second] && candidates[it] and extra != 0 }
+                    if (affected.isEmpty()) continue
+                    val focus = listOf(pivot, first, second)
+                    val needs = focus.flatMap { cell -> digitsIn(ALL and candidates[cell].inv()).map { cell * 10 + it } }
+                    val digit = Integer.numberOfTrailingZeros(extra)
+                    val reason = "The pivot at ${name(pivot)} can be ${join(digitsIn(middle))}. " +
+                        "If it is ${Integer.numberOfTrailingZeros(shared)}, ${name(first)} must be $digit. " +
+                        "If it is ${Integer.numberOfTrailingZeros(other)}, ${name(second)} must be $digit. " +
+                        "Any cell that shares a row, column, or box with both pincers can cross off $digit."
+                    return Elimination(affected, extra, needs, HintStep(reason, Technique.XY_WING), focus)
+                }
+            }
+        }
+        return null
+    }
+
+    private fun isPending(candidate: Int, crossedOff: IntArray) = crossedOff[candidate / 10] and bit(candidate % 10) == 0
+
+    private fun analyze(board: IntArray, budget: HintBudget? = null, crossedOff: IntArray? = null): Analysis {
         val candidates = candidateBoard(board)
         val eliminations = mutableListOf<Elimination>()
-        while (indexes.none { board[it] == 0 && candidates[it] == 0 }) {
-            budget?.check()
-            val move = single(candidates)
-            if (move != null) return Analysis(move, candidates, eliminations)
-            val step = locked(candidates) ?: pair(candidates) ?: break
-            for (cell in step.cells) {
-                step.removed += digitsIn(candidates[cell] and step.mask).map { cell * 10 + it }
-                candidates[cell] = candidates[cell] and step.mask.inv()
+        try {
+            while (indexes.none { board[it] == 0 && candidates[it] == 0 }) {
+                budget?.check()
+                val move = single(candidates)
+                if (move != null) return Analysis(move, candidates, eliminations)
+                val pattern = locked(candidates) ?: pair(candidates) ?: if (crossedOff != null) {
+                    hiddenSubset(candidates, 2) ?: nakedSubset(candidates, 3) ?: hiddenSubset(candidates, 3)
+                        ?: nakedSubset(candidates, 4) ?: hiddenSubset(candidates, 4)
+                        ?: fish(candidates, 2, budget) ?: xyWing(candidates) ?: fish(candidates, 3, budget)
+                } else null
+                if (pattern == null) break
+                val step = if (crossedOff != null) {
+                    pattern.copy(focusNotes = pattern.focus.associateWith { candidates[it] })
+                } else pattern
+                for (cell in step.cells) {
+                    step.removed += digitsIn(candidates[cell] and step.mask).map { cell * 10 + it }
+                    candidates[cell] = candidates[cell] and step.mask.inv()
+                }
+                eliminations += step
             }
-            eliminations += step
+        } catch (timeout: HintTimedOut) {
+            // A proven elimination that still applies is useful after a placement search times out.
+            if (crossedOff == null || eliminations.none { step -> step.removed.any { isPending(it, crossedOff) } }) throw timeout
         }
         return Analysis(null, candidates, eliminations)
     }
@@ -450,16 +602,35 @@ internal object Sudoku {
             digits.map { branch(work, cell, it) }
     }
 
-    fun hint(board: IntArray, budget: HintBudget = HintBudget()): Hint? {
+    fun hint(board: IntArray, budget: HintBudget = HintBudget(), crossedOff: IntArray = IntArray(COUNT)): Hint? {
         budget.check()
         if (board.size != COUNT || board.any { it !in 0..SIZE } ||
             indexes.any { cell -> board[cell] != 0 && peers[cell].any { board[it] == board[cell] } }) return null
-        val analysis = analyze(board, budget)
+        val analysis = analyze(board, budget, crossedOff)
         analysis.move?.let { move ->
+            if (analysis.eliminations.isEmpty()) {
+                val unit = cellUnits[move.cell].firstOrNull { places(it, move.digit, analysis.candidates).size == 1 }
+                val direct = move.copy(unit = unit)
+                val reason = if (unit == null) {
+                    "The row, column, and box rule out every digit except ${move.digit}."
+                } else {
+                    "In ${unit.name}, only ${placeIn(unit, move.cell)} can take ${move.digit}."
+                }
+                return Hint(direct.cell, direct.digit, direct.technique, listOf(HintStep(reason)))
+            }
             val (steps, needs) = evidence(board, move)
             val conclusion = if (move.unit == null) "${move.digit} is the only digit that fits in this cell."
             else "This is the only cell in ${move.unit.name} where ${move.digit} can go."
             return Hint(move.cell, move.digit, move.technique, steps + relevant(analysis.eliminations, needs) + HintStep(conclusion))
+        }
+        for ((index, step) in analysis.eliminations.withIndex()) {
+            val removals = step.removed.filter { isPending(it, crossedOff) }.map { CandidateRemoval(it / 10, it % 10) }
+            if (removals.isEmpty()) continue
+            val first = removals.first()
+            val technique = checkNotNull(step.reason.technique)
+            val reasoning = relevant(analysis.eliminations.take(index), step.needs.toMutableSet()) + step.reason
+            return Hint(first.cell, first.digit, technique, reasoning, removals, step.focusNotes,
+                step.reason.heading ?: technique.title)
         }
         val cell = mostConstrained(analysis.candidates) ?: return null
         val options = digitsIn(candidates(board, cell))

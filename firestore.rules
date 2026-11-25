@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {

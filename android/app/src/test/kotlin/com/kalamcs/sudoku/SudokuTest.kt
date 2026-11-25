@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 package com.kalamcs.sudoku
 
 import org.junit.Assert.assertArrayEquals
@@ -12,6 +15,10 @@ import kotlin.random.Random
 
 class SudokuTest {
     private fun board(text: String) = checkNotNull(Sudoku.decode(text))
+
+    private fun IntArray.crossOff(removals: List<CandidateRemoval>) {
+        for ((cell, digit) in removals) this[cell] = this[cell] or Sudoku.bit(digit)
+    }
 
     @Test fun generatedPuzzlesAreUniqueAndMatchDifficulty() {
         val random = Random(0x1a2b3c4d)
@@ -45,14 +52,25 @@ class SudokuTest {
         for (difficulty in Difficulty.entries) repeat(3) {
             val puzzle = Sudoku.generate(difficulty, random)
             val work = puzzle.givens.copyOf()
-            repeat(work.count { it == 0 }) {
-                val hint = checkNotNull(Sudoku.hint(work))
+            val crossedOff = IntArray(Sudoku.COUNT)
+            while (0 in work) {
+                val hint = checkNotNull(Sudoku.hint(work, crossedOff = crossedOff))
                 assertEquals(0, work[hint.cell])
-                assertEquals(puzzle.solution[hint.cell], hint.digit)
                 assertTrue(hint.technique in Guide.order)
                 assertTrue(hint.steps.isNotEmpty())
                 assertTrue(hint.steps.all { step -> step.technique == null || step.technique in Guide.order })
-                work[hint.cell] = hint.digit
+                if (hint.removals.isNotEmpty()) {
+                    for ((cell, digit) in hint.removals) {
+                        assertEquals(0, work[cell])
+                        assertTrue(puzzle.solution[cell] != digit)
+                        assertEquals(0, crossedOff[cell] and Sudoku.bit(digit))
+                    }
+                    crossedOff.crossOff(hint.removals)
+                } else {
+                    assertEquals(puzzle.solution[hint.cell], hint.digit)
+                    work[hint.cell] = hint.digit
+                    crossedOff.fill(0)
+                }
             }
             assertArrayEquals(puzzle.solution, work)
         }
@@ -60,7 +78,7 @@ class SudokuTest {
 
     @Test fun shortProofUsesTheSameTermsAsTheGuideAndNamesTheDeadEnd() {
         val board = board(Guide.PROOF_BOARD)
-        val hint = checkNotNull(Sudoku.hint(board))
+        val hint = checkNotNull(Sudoku.hint(board, crossedOff = IntArray(Sudoku.COUNT) { Sudoku.ALL }))
         assertEquals(1, hint.cell)
         assertEquals(5, hint.digit)
         assertEquals(Technique.CONTRADICTION, hint.technique)
@@ -80,9 +98,86 @@ class SudokuTest {
         assertEquals(Guide.PROOF_BOARD, board.joinToString(""))
     }
 
+    @Test fun candidateHintsAdvanceAcrossTheSameBoardBeforeFallingBackToProof() {
+        val puzzle = board(Guide.PROOF_BOARD)
+        val first = checkNotNull(Sudoku.hint(puzzle))
+        assertEquals(Technique.LOCKED_CANDIDATES, first.technique)
+        assertEquals(listOf(CandidateRemoval(39, 2), CandidateRemoval(40, 2)), first.removals)
+        val crossedOff = IntArray(Sudoku.COUNT).apply { crossOff(first.removals) }
+        var handledMore = false
+        repeat(Sudoku.COUNT * Sudoku.SIZE) {
+            val next = checkNotNull(Sudoku.hint(puzzle, crossedOff = crossedOff))
+            if (next.technique == Technique.CONTRADICTION) {
+                assertTrue(handledMore)
+                assertEquals(Guide.PROOF_BOARD, puzzle.joinToString(""))
+                return
+            }
+            assertTrue(next.removals.isNotEmpty())
+            assertTrue(next.removals.all { crossedOff[it.cell] and Sudoku.bit(it.digit) == 0 })
+            crossedOff.crossOff(next.removals)
+            handledMore = true
+        }
+        throw AssertionError("Did not reach the proof after all candidate eliminations")
+    }
+
+    @Test fun anEliminationHintListsOnlyCandidatesStillToCrossOff() {
+        val puzzle = board(Guide.PROOF_BOARD)
+        val crossedOff = IntArray(Sudoku.COUNT).apply { this[39] = Sudoku.bit(2) }
+        val hint = checkNotNull(Sudoku.hint(puzzle, crossedOff = crossedOff))
+        assertEquals(Technique.LOCKED_CANDIDATES, hint.technique)
+        assertEquals(40, hint.cell)
+        assertEquals(listOf(CandidateRemoval(40, 2)), hint.removals)
+    }
+
+    @Test fun theReportedEasyPuzzleExplainsTheSingleInOneSentence() {
+        val puzzle = board("068290000000700001170038609810027054702003196056904000001389007604000900900540208")
+        val hint = checkNotNull(Sudoku.hint(puzzle))
+        assertEquals(20, hint.cell)
+        assertEquals(5, hint.digit)
+        assertEquals(Technique.HIDDEN_SINGLE, hint.technique)
+        assertEquals(listOf("In row 3, only column 3 can take 5."), hint.steps.map(HintStep::text))
+    }
+
+    @Test fun expertAndHiddenPairHintsShowOnlyValidCandidatesToCrossOff() {
+        val cases = listOf(
+            Technique.HIDDEN_PAIR to "079000000060903107800750900008010030706000005003400000907200000680000002002160079",
+            Technique.X_WING to "060050780000276003057810026400985600689000000070601894000140060106090008790060010",
+            Technique.XY_WING to "168934752723518964549762381430000100005109036916203800690000003300090010050300600",
+        )
+        for ((technique, data) in cases) {
+            val puzzle = board(data)
+            val solution = checkNotNull(Sudoku.uniqueSolution(puzzle))
+            val crossedOff = IntArray(Sudoku.COUNT)
+            val hint = checkNotNull((0..30).asSequence().mapNotNull {
+                Sudoku.hint(puzzle, crossedOff = crossedOff)?.also { hint -> crossedOff.crossOff(hint.removals) }
+            }
+                .takeWhile { it.removals.isNotEmpty() }.firstOrNull { it.technique == technique })
+            assertTrue(hint.focus.isNotEmpty())
+            for ((cell, digit) in hint.removals) {
+                assertEquals(0, puzzle[cell])
+                assertTrue(Sudoku.candidates(puzzle, cell) and Sudoku.bit(digit) != 0)
+                assertTrue(solution[cell] != digit)
+            }
+            assertEquals(data, puzzle.joinToString(""))
+        }
+    }
+
+    @Test fun swordfishFindsTheRemovalsInTheGuideInEitherOrientation() {
+        val example = Guide.lesson(Technique.SWORDFISH).pictures.single().diagram
+        fun transpose(cell: Int) = cell % Sudoku.SIZE * Sudoku.SIZE + cell / Sudoku.SIZE
+        val notes = example.notes
+        val rowPattern = checkNotNull(Sudoku.fish(notes, 3))
+        assertEquals(Technique.SWORDFISH, rowPattern.reason.technique)
+        assertEquals(Sudoku.bit(2), rowPattern.mask)
+        assertEquals(example.crossed, rowPattern.cells.toSet())
+        val colPattern = checkNotNull(Sudoku.fish(IntArray(Sudoku.COUNT) { notes[transpose(it)] }, 3))
+        assertEquals(Sudoku.bit(2), colPattern.mask)
+        assertEquals(example.crossed, colPattern.cells.map(::transpose).toSet())
+    }
+
     @Test fun deepProofBranchesEachReachAnExplainableContradiction() {
         val board = board("079000000060903107800750900008010030706000005003400000907200000680000002002160079")
-        val hint = checkNotNull(Sudoku.hint(board))
+        val hint = checkNotNull(Sudoku.hint(board, crossedOff = IntArray(Sudoku.COUNT) { Sudoku.ALL }))
         assertEquals(3, hint.cell)
         assertEquals(8, hint.digit)
         var deadEnds = 0
@@ -107,6 +202,20 @@ class SudokuTest {
         val puzzle = board(Guide.PROOF_BOARD)
         assertThrows(HintTimedOut::class.java) { Sudoku.hint(puzzle, HintBudget(0)) }
         assertEquals(Guide.PROOF_BOARD, puzzle.joinToString(""))
+    }
+
+    @Test fun aTimeoutStillShowsAnUnreadEliminationAlreadyProved() {
+        val puzzle = board(Guide.PROOF_BOARD)
+        fun budgetAfterOneElimination(): HintBudget {
+            var reads = 0
+            return HintBudget(1) { if (reads++ <= 2) 0L else 2_000_000L }
+        }
+        val hint = checkNotNull(Sudoku.hint(puzzle, budgetAfterOneElimination()))
+        assertEquals(listOf(CandidateRemoval(39, 2), CandidateRemoval(40, 2)), hint.removals)
+        assertThrows(HintTimedOut::class.java) {
+            val crossedOff = IntArray(Sudoku.COUNT).apply { crossOff(hint.removals) }
+            Sudoku.hint(puzzle, budgetAfterOneElimination(), crossedOff)
+        }
     }
 
     @Test fun guideExamplesUseValidCandidatesAndHintTerminology() {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 package com.kalamcs.sudoku
 
 import android.content.Context
@@ -35,15 +38,19 @@ internal data class AppearanceSettings(
     val theme: GameTheme = GameTheme.OCEAN,
     val screenTimeout: ScreenTimeout = ScreenTimeout.SYSTEM,
     val keypadLayout: KeypadLayout = KeypadLayout.AUTO,
+    val entryOrder: EntryOrder = EntryOrder.CELL_FIRST,
 ) {
     fun palette(systemDark: Boolean) = theme.palette(mode.isDark(systemDark))
 
     companion object {
-        fun fromKeys(mode: String?, theme: String?, screenTimeout: String? = null, keypadLayout: String? = null) = AppearanceSettings(
+        fun fromKeys(
+            mode: String?, theme: String?, screenTimeout: String? = null, keypadLayout: String? = null, entryOrder: String? = null,
+        ) = AppearanceSettings(
             mode = AppearanceMode.entries.firstOrNull { it.key == mode } ?: AppearanceMode.LIGHT,
             theme = GameTheme.entries.firstOrNull { it.key == theme } ?: GameTheme.OCEAN,
             screenTimeout = ScreenTimeout.entries.firstOrNull { it.key == screenTimeout } ?: ScreenTimeout.SYSTEM,
             keypadLayout = KeypadLayout.entries.firstOrNull { it.key == keypadLayout } ?: KeypadLayout.AUTO,
+            entryOrder = EntryOrder.entries.firstOrNull { it.key == entryOrder } ?: EntryOrder.CELL_FIRST,
         )
     }
 }
@@ -56,6 +63,7 @@ internal class AppearanceStore(context: Context) {
         preferences.getString("theme", null),
         preferences.getString("screenTimeout", null),
         preferences.getString("keypadLayout", null),
+        preferences.getString("entryOrder", null),
     )
 
     fun save(settings: AppearanceSettings) {
@@ -64,6 +72,7 @@ internal class AppearanceStore(context: Context) {
             .putString("theme", settings.theme.key)
             .putString("screenTimeout", settings.screenTimeout.key)
             .putString("keypadLayout", settings.keypadLayout.key)
+            .putString("entryOrder", settings.entryOrder.key)
             .apply()
     }
 }
@@ -114,6 +123,8 @@ internal class GamePalette(
     val pencilMark = muted
     val noteMarker = blend(relatedCell, accent, if (dark) .24f else .32f)
     val completedKey = blend(surface, ink, if (dark) .17f else .13f)
+    val completedKeyInk = (5 downTo 0).map { blend(ink, completedKey, it / 10f) }
+        .first { colorContrast(it, completedKey) >= 3 }
     val error = opaque(if (dark) 0xffa6b4 else 0xa12241)
     val errorSurface = blend(surface, error, if (dark) .16f else .1f)
     val successSurface = opaque(if (dark) 0x244c3b else 0xddf3e5)

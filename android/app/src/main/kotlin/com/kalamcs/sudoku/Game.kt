@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 package com.kalamcs.sudoku
 
 internal data class PrunedNotes(val cell: Int, val peers: List<Int>)
@@ -5,7 +8,9 @@ internal data class PrunedNotes(val cell: Int, val peers: List<Int>)
 internal data class BoardSnapshot(val values: IntArray, val notes: IntArray, val prunedNotes: PrunedNotes?)
 internal data class EditHistory(val undo: List<BoardSnapshot> = emptyList(), val redo: List<BoardSnapshot> = emptyList())
 
-internal enum class EntryOrder(val label: String) { CELL_FIRST("Cell first"), DIGIT_FIRST("Digit first") }
+internal enum class EntryOrder(val key: String, val label: String) {
+    CELL_FIRST("cell_first", "Cell first"), DIGIT_FIRST("digit_first", "Digit first"),
+}
 
 internal class Game(
     val puzzle: Puzzle,
@@ -54,6 +59,11 @@ internal class Game(
     val hasBlank get() = 0 in values
     val hasProgress get() = !finished && (!values.contentEquals(puzzle.givens) || notes.any { it != 0 })
 
+    fun canContinue(now: Long) = !finished &&
+        (elapsed(now) > 10_000L || hasProgress || undo.isNotEmpty() || redo.isNotEmpty())
+
+    fun remaining(digit: Int) = (Sudoku.SIZE - counts[digit]).coerceAtLeast(0)
+
     init { updateCounts() }
 
     fun select(cell: Int) {
@@ -65,7 +75,7 @@ internal class Game(
     fun canEnter(digit: Int) = !paused && !finished && (puzzle.givens[selected] != 0 || counts[digit] < 9)
 
     fun changeEntryOrder(order: EntryOrder): Boolean {
-        if (paused || finished || entryOrder == order) return false
+        if (entryOrder == order) return false
         entryOrder = order
         pickedDigit = 0
         highlightedDigit = 0
@@ -151,6 +161,29 @@ internal class Game(
     }
 
     fun editHistory() = EditHistory(undo.toList(), redo.toList())
+
+    fun crossedOffNotes(): IntArray {
+        val crossedOff = IntArray(Sudoku.COUNT)
+        var previous = undo.firstOrNull() ?: return crossedOff
+
+        fun applyEdit(nextValues: IntArray, nextNotes: IntArray) {
+            val notesOnly = previous.values.contentEquals(nextValues)
+            for (cell in nextValues.indices) {
+                val removed = if (notesOnly) previous.notes[cell] and nextNotes[cell].inv() else 0
+                crossedOff[cell] = if (nextValues[cell] == 0 && previous.values[cell] == 0) {
+                    (crossedOff[cell] or removed) and nextNotes[cell].inv()
+                } else 0
+            }
+        }
+
+        // Use the saved undo path, so upgrades and Undo/Redo see the same evidence.
+        for (next in undo.asSequence().drop(1)) {
+            applyEdit(next.values, next.notes)
+            previous = next
+        }
+        applyEdit(values, notes)
+        return crossedOff
+    }
 
     private fun snapshot() = BoardSnapshot(values.copyOf(), notes.copyOf(), prunedNotes)
 

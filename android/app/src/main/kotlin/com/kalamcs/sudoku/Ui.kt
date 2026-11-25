@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 package com.kalamcs.sudoku
 
 import android.content.Context
@@ -168,7 +171,7 @@ internal class Ui(private val context: Context) {
             else -> palette.toolbarSurface
         }
         val foreground = when {
-            completed -> palette.muted
+            completed -> palette.completedKeyInk
             selected -> palette.onAccent
             else -> palette.ink
         }

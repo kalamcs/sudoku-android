@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 import { build } from 'esbuild';
 
 const email = (process.env.SUDOKU_FEEDBACK_EMAIL || '').trim();

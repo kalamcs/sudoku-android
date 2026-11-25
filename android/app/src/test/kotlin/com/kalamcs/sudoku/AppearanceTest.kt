@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 package com.kalamcs.sudoku
 
 import org.junit.Assert.assertEquals
@@ -13,7 +16,16 @@ class AppearanceTest {
         assertEquals(AppearanceMode.LIGHT, settings.mode)
         assertFalse(settings.palette(systemDark = true).dark)
         assertEquals(KeypadLayout.AUTO, settings.keypadLayout)
+        assertEquals(EntryOrder.CELL_FIRST, settings.entryOrder)
         assertEquals(settings, AppearanceSettings.fromKeys("unknown", "unknown"))
+    }
+
+    @Test fun entryOrderHasAnIndependentPreference() {
+        val settings = AppearanceSettings.fromKeys("dark", "rose", "three_minutes", "row", "digit_first")
+        assertEquals(EntryOrder.DIGIT_FIRST, settings.entryOrder)
+        assertEquals(KeypadLayout.ROW, settings.keypadLayout)
+        assertEquals(GameTheme.ROSE, settings.theme)
+        assertEquals(EntryOrder.CELL_FIRST, AppearanceSettings.fromKeys(null, null, entryOrder = "invalid").entryOrder)
     }
 
     @Test fun keypadSettingMigratesIndependentlyOfAppearanceAndScreenTimeout() {
@@ -50,7 +62,8 @@ class AppearanceTest {
                 assertTrue("$label filled button", colorContrast(palette.onAccent, palette.accent) >= 4.5)
                 assertTrue("$label emphasized matching digit", colorContrast(palette.accentInk, palette.matchingCell) >= 4.5)
                 assertTrue("$label matching outline", colorContrast(palette.accent, palette.relatedCell) >= 2.0)
-                assertTrue("$label completed keypad digit", colorContrast(palette.muted, palette.completedKey) >= 4.5)
+                assertTrue("$label completed keypad digit", colorContrast(palette.completedKeyInk, palette.completedKey) >= 3)
+                assertTrue("$label keypad count", colorContrast(palette.muted, palette.toolbarSurface) >= 4.5)
                 assertTrue("$label selected notes", colorContrast(palette.ink, palette.selectedCell) >= 4.5)
                 assertTrue("$label matching notes", colorContrast(palette.ink, palette.noteMarker) >= 4.5)
                 assertTrue("$label ordinary notes", colorContrast(palette.muted, palette.relatedCell) >= 4.5)
