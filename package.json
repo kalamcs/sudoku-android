@@ -6,24 +6,11 @@
   "description": "Sudoku for Android",
   "scripts": {
     "test": "cd android && ./gradlew testDebugUnitTest",
-    "test:web": "node --test",
-    "build:web-bridge": "node scripts/build-native.mjs",
     "apk": "cd android && ./gradlew assembleDebug",
     "aab": "cd android && ./gradlew bundleRelease",
-    "open": "cap open android",
     "icons": "node scripts/generate-icons.mjs"
   },
-  "dependencies": {
-    "@capacitor/android": "^8.6.2",
-    "@capacitor/app": "^8.1.2",
-    "@capacitor/browser": "^8.0.5",
-    "@capacitor/core": "^8.6.2",
-    "@capacitor/splash-screen": "^8.0.2"
-  },
   "devDependencies": {
-    "@capacitor/cli": "^8.6.2",
-    "esbuild": "^0.28.2",
-    "jsdom": "^26.1.0",
     "sharp": "^0.35.5"
   }
 }

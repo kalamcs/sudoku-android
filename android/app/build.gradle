@@ -30,6 +30,13 @@ android {
         buildConfig true
     }
     sourceSets.main.assets.srcDir(projectLicenseAssets)
+    sourceSets.test.resources.srcDir('src/main/assets')
+    androidResources {
+        noCompress += 'sudoku'
+    }
+    packaging {
+        resources.excludes += 'puzzles/se-templates.tsv'
+    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17

@@ -496,7 +496,7 @@ class SudokuActivity : AppCompatActivity() {
         generationInProgress = true
         renderHome()
         puzzleWorker.execute {
-            val result = runCatching { Sudoku.generate(difficulty) }
+            val result = runCatching { RatedPuzzleBank.generate(difficulty, assets) }
             runOnUiThread {
                 if (isDestroyed || isFinishing) return@runOnUiThread
                 generationInProgress = false

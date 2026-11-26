@@ -15,6 +15,19 @@ import kotlin.random.Random
 
 class SudokuTest {
     private fun board(text: String) = checkNotNull(Sudoku.decode(text))
+    private val assets = mutableMapOf<Difficulty, ByteArray>()
+
+    private fun catalog(difficulty: Difficulty) = assets.getOrPut(difficulty) {
+        checkNotNull(javaClass.getResourceAsStream("/puzzles/${difficulty.key}.sudoku")).use { it.readBytes() }
+    }
+
+    private fun puzzle(difficulty: Difficulty, random: Random): Puzzle {
+        if (difficulty == Difficulty.EASY) return Sudoku.generateEasy(random)
+        val data = catalog(difficulty)
+        return RatedPuzzleBank.select(difficulty, data.size.toLong(), random) { offset, record ->
+            data.copyInto(record, startIndex = offset.toInt(), endIndex = offset.toInt() + record.size)
+        }
+    }
 
     private fun IntArray.crossOff(removals: List<CandidateRemoval>) {
         for ((cell, digit) in removals) this[cell] = this[cell] or Sudoku.bit(digit)
@@ -22,18 +35,76 @@ class SudokuTest {
 
     @Test fun generatedPuzzlesAreUniqueAndMatchDifficulty() {
         val random = Random(0x1a2b3c4d)
-        for (difficulty in Difficulty.entries) repeat(if (difficulty in listOf(Difficulty.EASY, Difficulty.MEDIUM)) 24 else 8) {
-            val puzzle = Sudoku.generate(difficulty, random)
+        for (difficulty in Difficulty.entries) repeat(24) {
+            val puzzle = puzzle(difficulty, random)
             assertEquals(difficulty, puzzle.difficulty)
-            assertTrue(puzzle.givens.count { it != 0 } in difficulty.clues)
             assertEquals(1, Sudoku.countSolutions(puzzle.givens))
             assertArrayEquals(puzzle.solution, Sudoku.solve(puzzle.givens))
-            when (difficulty) {
-                Difficulty.HARD -> assertTrue(Sudoku.canSolveWithoutSearch(puzzle.givens))
-                Difficulty.EXTREME -> assertFalse(Sudoku.canSolveWithoutSearch(puzzle.givens))
-                else -> Unit
+            if (difficulty == Difficulty.EASY) assertTrue(Sudoku.solvesWithSingles(puzzle.givens))
+        }
+    }
+
+    @Test fun seDifficultyBandsHaveNoGapsOrOverlaps() {
+        assertTrue(25 in Difficulty.EASY.seRatings)
+        assertTrue(26 in Difficulty.MEDIUM.seRatings)
+        assertTrue(44 in Difficulty.MEDIUM.seRatings)
+        assertTrue(45 in Difficulty.HARD.seRatings)
+        assertTrue(85 in Difficulty.HARD.seRatings)
+        assertTrue(86 in Difficulty.EXTREME.seRatings)
+        for (rating in 10 until 200) {
+            assertEquals(1, Difficulty.entries.count { rating in it.seRatings })
+        }
+    }
+
+    @Test fun everyBundledTemplateAndVariationHasOneSolutionAndFitsItsBand() {
+        val sources = checkNotNull(javaClass.getResourceAsStream("/puzzles/se-templates.tsv"))
+            .bufferedReader().useLines { lines ->
+                lines.filterNot { it.startsWith("#") }.map { it.split('\t') }.groupBy { it[0] }
+            }
+        val distinctBoards = mutableSetOf<String>()
+        for (difficulty in listOf(Difficulty.MEDIUM, Difficulty.HARD, Difficulty.EXTREME)) {
+            val data = catalog(difficulty)
+            val source = sources.getValue(difficulty.key)
+            val templates = source.chunked(RatedPuzzleBank.VARIANT_COUNT + 1)
+            assertEquals(templates.size * RatedPuzzleBank.RECORD_SIZE, data.size)
+            assertTrue(templates.size >= 300)
+            for ((index, template) in templates.withIndex()) {
+                assertEquals(RatedPuzzleBank.VARIANT_COUNT + 1, template.size)
+                val offset = index * RatedPuzzleBank.RECORD_SIZE
+                val record = data.copyOfRange(offset, offset + RatedPuzzleBank.RECORD_SIZE)
+                for ((variant, row) in template.withIndex()) {
+                    val (_, id, rating, givens, solution) = row
+                    val puzzle = RatedPuzzleBank.decode(difficulty, record, variant)
+                    assertEquals(template.first()[1], id)
+                    assertEquals(rating.toInt(), RatedPuzzleBank.rating(record, variant))
+                    assertArrayEquals(board(givens), puzzle.givens)
+                    assertArrayEquals(board(solution), puzzle.solution)
+                    assertTrue("Duplicate board $givens", distinctBoards.add(givens))
+                    assertEquals("Board $givens", 1, Sudoku.countSolutions(puzzle.givens, 2))
+                    assertArrayEquals(puzzle.solution, Sudoku.solve(puzzle.givens))
+                }
             }
         }
+    }
+
+    @Test fun loadingAVariantReadsJustOneAlignedRecord() {
+        val difficulty = Difficulty.MEDIUM
+        val data = catalog(difficulty)
+        var reads = 0
+        val record = ByteArray(RatedPuzzleBank.RECORD_SIZE)
+        val puzzle = RatedPuzzleBank.select(difficulty, data.size.toLong(), Random(81)) { position, bytes ->
+            reads++
+            assertEquals(RatedPuzzleBank.RECORD_SIZE, bytes.size)
+            assertEquals(0L, position % bytes.size)
+            data.copyInto(bytes, startIndex = position.toInt(), endIndex = position.toInt() + bytes.size)
+            bytes.copyInto(record)
+        }
+        assertEquals(1, reads)
+        assertEquals(difficulty, puzzle.difficulty)
+        assertTrue((1..RatedPuzzleBank.VARIANT_COUNT).any {
+            RatedPuzzleBank.decode(difficulty, record, it).givens.contentEquals(puzzle.givens)
+        })
+        assertFalse(RatedPuzzleBank.decode(difficulty, record, 0).givens.contentEquals(puzzle.givens))
     }
 
     @Test fun contradictoryGivensAreRejected() {
@@ -50,7 +121,7 @@ class SudokuTest {
     @Test fun everyHintAdvancesAValidPuzzleAndUsesACoveredTechnique() {
         val random = Random(509)
         for (difficulty in Difficulty.entries) repeat(3) {
-            val puzzle = Sudoku.generate(difficulty, random)
+            val puzzle = puzzle(difficulty, random)
             val work = puzzle.givens.copyOf()
             val crossedOff = IntArray(Sudoku.COUNT)
             while (0 in work) {
