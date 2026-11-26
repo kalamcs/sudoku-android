@@ -59,6 +59,7 @@ private class SolvingContent(
     private val verticalEdge = ui.dp(4)
     private val minimumBoard = ui.dp(144)
     private val keyTarget = ui.dp(44)
+    private val compactKeyTarget = ui.dp(36)
     private val minimumPanel = 5 * keyTarget + 4 * ui.dp(4)
     private val waves = HomeWaves(context, ui.palette)
     private val keypad = KeypadGrid(context, ui, digits)
@@ -74,11 +75,8 @@ private class SolvingContent(
     private data class Plan(
         val columns: Int,
         val boardSize: Int,
-        val panelWidth: Int,
-        val keypadWidth: Int,
-        val shortcutWidth: Int,
-        val splitFooter: Boolean,
-        val compactFooter: Boolean,
+        val controlsWidth: Int,
+        val compact: Boolean,
         val height: Int,
     )
 
@@ -98,22 +96,12 @@ private class SolvingContent(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec).coerceAtLeast(1)
         val inner = (width - 2 * edge).coerceAtLeast(1)
-        measureHeight(header, width)
         sideBySide = width > viewportHeight && inner >= minimumBoard + paneGap + minimumPanel
-        val grid = planFor(3, inner, keypad.minimumWidth(3, keyTarget))
-        val row = if (preference == KeypadLayout.GRID) null else {
-            val target = if (preference == KeypadLayout.ROW) ui.dp(36) else keyTarget
-            val rowWidth = keypad.minimumWidth(9, target)
-            val available = if (sideBySide) inner - paneGap - minimumBoard else inner
-            if (available >= rowWidth) planFor(9, inner, rowWidth) else null
-        }
-        val boardDifference = maxOf(ui.dp(12), grid.boardSize / 20)
-        plan = when (preference) {
-            KeypadLayout.GRID -> grid
-            KeypadLayout.ROW -> row ?: grid
-            KeypadLayout.AUTO -> if (row != null && row.height <= viewportHeight &&
-                (grid.height > viewportHeight || row.boardSize >= grid.boardSize + boardDifference ||
-                    sideBySide && row.boardSize >= grid.boardSize - keyTarget)) row else grid
+        plan = if (sideBySide) {
+            landscapePlan(inner)
+        } else {
+            measureHeight(header, width)
+            stackedPlan(inner)
         }
         measureControls(plan)
         exact(board, plan.boardSize, plan.boardSize)
@@ -122,29 +110,46 @@ private class SolvingContent(
         setMeasuredDimension(width, plan.height + waveHeight)
     }
 
-    private fun planFor(columns: Int, width: Int, minimumKeypadWidth: Int): Plan {
-        val headerHeight = header.measuredHeight
-        if (sideBySide) {
-            val boardSize = minOf(viewportHeight - 2 * verticalEdge, width - paneGap - maxOf(minimumPanel, minimumKeypadWidth))
-                .coerceAtLeast(1)
-            val panelWidth = width - paneGap - boardSize
-            val regular = panelPlan(columns, boardSize, panelWidth, panelWidth, panelWidth, split = false, compact = false)
-            if (regular.height <= viewportHeight) return regular
-            val compact = panelPlan(columns, boardSize, panelWidth, panelWidth, panelWidth, split = false, compact = true)
-            if (compact.height <= viewportHeight || columns == 9) return compact
-            val footerWidth = shortcuts.columnWidth
-            val keypadWidth = panelWidth - footerWidth - gap
-            if (keypadWidth < minimumKeypadWidth) return compact
-            return panelPlan(columns, boardSize, panelWidth, keypadWidth, footerWidth, split = true, compact = true)
-                .takeIf { it.height < compact.height } ?: compact
+    private fun landscapePlan(width: Int): Plan {
+        val boardSize = minOf(viewportHeight - 2 * verticalEdge, width - paneGap - minimumPanel).coerceAtLeast(1)
+        val controlsWidth = width - paneGap - boardSize
+        fun controls(columns: Int, compact: Boolean): Plan {
+            val sizes = Plan(columns, boardSize, controlsWidth, compact, height = 0)
+            measureControls(sizes)
+            val panelHeight = controlsHeight() + 4 * (if (compact) compactGap else gap)
+            return sizes.copy(height = 2 * verticalEdge + maxOf(boardSize, panelHeight))
         }
 
+        fun fitControls(columns: Int): Plan {
+            val regular = controls(columns, compact = false)
+            return if (regular.height <= viewportHeight) regular else controls(columns, compact = true)
+        }
+
+        val grid = fitControls(3)
+        if (preference == KeypadLayout.GRID) return grid
+        val target = if (preference == KeypadLayout.ROW || grid.height > viewportHeight) compactKeyTarget else keyTarget
+        if (controlsWidth < keypad.minimumWidth(9, target)) return grid
+        val row = fitControls(9)
+        return if (preference == KeypadLayout.ROW || row.height <= viewportHeight) row else grid
+    }
+
+    private fun stackedPlan(width: Int): Plan {
+        val grid = stackedPlan(3, width)
+        if (preference == KeypadLayout.GRID) return grid
+        val target = if (preference == KeypadLayout.ROW) compactKeyTarget else keyTarget
+        if (width < keypad.minimumWidth(9, target)) return grid
+        val row = stackedPlan(9, width)
+        if (preference == KeypadLayout.ROW) return row
+        val boardDifference = maxOf(ui.dp(12), grid.boardSize / 20)
+        return if (row.height <= viewportHeight &&
+            (grid.height > viewportHeight || row.boardSize >= grid.boardSize + boardDifference)) row else grid
+    }
+
+    private fun stackedPlan(columns: Int, width: Int): Plan {
         fun portrait(compact: Boolean): Plan {
-            val sizes = Plan(columns, 0, width, width, width, splitFooter = false, compactFooter = compact, height = 0)
+            val sizes = Plan(columns, 0, width, compact, height = 0)
             measureControls(sizes)
-            val spacing = if (compact) compactGap else gap
-            val fixedHeight = headerHeight + status.measuredHeight + toolbar.measuredHeight + keypad.measuredHeight +
-                shortcuts.measuredHeight + 5 * spacing + verticalEdge
+            val fixedHeight = controlsHeight() + 5 * (if (compact) compactGap else gap) + verticalEdge
             val boardSize = (viewportHeight - fixedHeight).coerceIn(minOf(minimumBoard, width), width)
             return sizes.copy(boardSize = boardSize, height = fixedHeight + boardSize)
         }
@@ -154,42 +159,31 @@ private class SolvingContent(
         return if (compact.boardSize > regular.boardSize || compact.height < regular.height) compact else regular
     }
 
-    private fun panelPlan(
-        columns: Int, boardSize: Int, panelWidth: Int, keypadWidth: Int, footerWidth: Int, split: Boolean, compact: Boolean,
-    ): Plan {
-        val sizes = Plan(columns, boardSize, panelWidth, keypadWidth, footerWidth, split, compact, height = 0)
-        measureControls(sizes)
-        val spacing = if (compact) compactGap else gap
-        val lower = if (split) maxOf(keypad.measuredHeight, shortcuts.measuredHeight)
-            else keypad.measuredHeight + spacing + shortcuts.measuredHeight
-        val panelHeight = header.measuredHeight + status.measuredHeight + toolbar.measuredHeight + 3 * spacing + lower
-        return sizes.copy(height = 2 * verticalEdge + maxOf(boardSize, panelHeight))
-    }
+    private fun controlsHeight() = header.measuredHeight + status.measuredHeight + toolbar.measuredHeight +
+        keypad.measuredHeight + shortcuts.measuredHeight
 
     private fun measureControls(sizes: Plan) {
-        if (sideBySide) measureHeight(header, sizes.panelWidth)
-        measureHeight(status, sizes.panelWidth)
-        measureHeight(toolbar, sizes.panelWidth)
-        keypad.measureAt(sizes.keypadWidth, sizes.columns)
-        shortcuts.measureAt(sizes.shortcutWidth, sizes.splitFooter, sizes.compactFooter)
+        val width = sizes.controlsWidth
+        if (sideBySide) measureHeight(header, width)
+        measureHeight(status, width)
+        measureHeight(toolbar, width)
+        keypad.measureAt(width, sizes.columns)
+        shortcuts.measureAt(width, sizes.compact)
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        val spacing = if (plan.compact) compactGap else gap
         if (sideBySide) {
-            val spacing = if (plan.compactFooter) compactGap else gap
             waves.place(0, 0)
             board.place(edge, verticalEdge)
             val panelLeft = edge + plan.boardSize + paneGap
             val statusTop = header.place(panelLeft, verticalEdge) + spacing
             val toolbarTop = status.place(panelLeft, statusTop) + spacing
             val keypadTop = toolbar.place(panelLeft, toolbarTop) + spacing
-            val keypadBottom = keypad.place(panelLeft, keypadTop)
-            if (plan.splitFooter) shortcuts.place(panelLeft + plan.keypadWidth + gap, keypadTop)
-            else shortcuts.place(panelLeft, keypadBottom + spacing)
+            shortcuts.place(panelLeft, keypad.place(panelLeft, keypadTop) + spacing)
         } else {
             header.place(0, 0)
             waves.place(0, header.measuredHeight)
-            val spacing = if (plan.compactFooter) compactGap else gap
             val boardTop = status.place(edge, header.measuredHeight + waveHeight + spacing) + spacing
             val toolbarTop = board.place((measuredWidth - plan.boardSize) / 2, boardTop) + spacing
             val keypadTop = toolbar.place(edge, toolbarTop) + spacing
@@ -255,13 +249,8 @@ private class PuzzleShortcuts(
         color = ui.palette.border
         strokeWidth = ui.dp(1).toFloat()
     }
-    private var stacked = false
     private var compact = false
     private var actionHeight = 0
-    val columnWidth: Int
-        get() = maxOf(ui.dp(88), actions.maxOf { button ->
-            button.text.lineSequence().maxOf { button.paint.measureText(it).toInt() } + ui.dp(25)
-        })
 
     init {
         background = ui.shape(ui.palette.toolbarSurface, 12, ui.palette.border)
@@ -269,9 +258,8 @@ private class PuzzleShortcuts(
         actions.forEach { addView(it, LayoutParams(MATCH_PARENT, WRAP_CONTENT)) }
     }
 
-    fun measureAt(width: Int, stacked: Boolean, compact: Boolean) {
-        if (this.stacked != stacked || this.compact != compact) {
-            this.stacked = stacked
+    fun measureAt(width: Int, compact: Boolean) {
+        if (this.compact != compact) {
             this.compact = compact
             actions.zip(icons).forEach { (button, icon) ->
                 val size = ui.dp(if (compact) 15 else 21)
@@ -287,28 +275,23 @@ private class PuzzleShortcuts(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         actionHeight = actions.mapIndexed { index, button ->
-            measureHeight(button, if (stacked) width else width * (index + 1) / actions.size - width * index / actions.size)
+            measureHeight(button, width * (index + 1) / actions.size - width * index / actions.size)
         }.max()
         actions.forEach { exact(it, it.measuredWidth, actionHeight) }
-        setMeasuredDimension(width, if (stacked) actions.size * actionHeight else actionHeight)
+        setMeasuredDimension(width, actionHeight)
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         actions.forEachIndexed { index, button ->
-            button.place(if (stacked) 0 else measuredWidth * index / actions.size, if (stacked) actionHeight * index else 0)
+            button.place(measuredWidth * index / actions.size, 0)
         }
     }
 
     override fun dispatchDraw(canvas: Canvas) {
         super.dispatchDraw(canvas)
         for (index in 1 until actions.size) {
-            if (stacked) {
-                val y = (index * actionHeight).toFloat()
-                canvas.drawLine(ui.dp(8).toFloat(), y, width - ui.dp(8).toFloat(), y, line)
-            } else {
-                val x = (width * index / actions.size).toFloat()
-                canvas.drawLine(x, height * .2f, x, height * .8f, line)
-            }
+            val x = (width * index / actions.size).toFloat()
+            canvas.drawLine(x, height * .2f, x, height * .8f, line)
         }
     }
 }

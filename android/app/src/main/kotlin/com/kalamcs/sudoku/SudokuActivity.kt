@@ -391,7 +391,7 @@ class SudokuActivity : AppCompatActivity() {
         val resources = ui.row()
         ui.equal(resources, ui.dashboardButton("How to Play", R.drawable.ic_guide) { openGuide() })
         ui.equal(resources, ui.dashboardButton("Settings", R.drawable.ic_settings, onClick = ::openSettings), 8)
-        ui.add(page, HomePanels(this, ui, puzzles, homeStats(), resources), 4)
+        ui.add(page, HomePanels(this, ui, puzzles, homeStats(), resources, hasContinueCard = saved != null), 4)
     }
 
     private fun continueCard(saved: Game): View = ui.row().apply {

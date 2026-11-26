@@ -24,6 +24,7 @@ internal class HomePanels(
     private val puzzles: View,
     private val stats: View,
     private val actions: View,
+    private val hasContinueCard: Boolean,
 ) : ViewGroup(context) {
     private val gutter = ui.dp(12)
     private var sideBySide = false
@@ -56,7 +57,9 @@ internal class HomePanels(
         place(puzzles, 0, 0)
         if (sideBySide) {
             place(stats, puzzles.measuredWidth + gutter, 0)
-            place(actions, 0, maxOf(puzzles.measuredHeight + gutter, stats.measuredHeight - actions.measuredHeight))
+            val belowPuzzles = puzzles.bottom + gutter
+            val actionsTop = if (hasContinueCard) maxOf(belowPuzzles, stats.bottom - actions.measuredHeight) else belowPuzzles
+            place(actions, 0, actionsTop)
         } else {
             place(stats, 0, puzzles.measuredHeight + ui.dp(18))
             place(actions, 0, stats.bottom + gutter)
