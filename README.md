@@ -53,11 +53,15 @@ through 9 exactly once. The starting clues stay fixed.
   keep the display awake for at least two or three minutes after an interaction,
   or for as long as the puzzle is open in the foreground.
 - In **Settings → Number Keypad Layout**, choose **Auto**, **3×3**, or **1×9**.
-  Auto measures the board and controls within the current safe area. It
-  favors 1×9 in landscape when it can keep 44 dp keys by reducing each side
-  of the board by up to 44 dp. In portrait it favors 3×3, using 1×9 when it gives
-  the board meaningfully more space and can keep 44 dp keys.
-  A manual 1×9 choice falls back to 3×3 when the row cannot fit.
+  In landscape the board takes the largest square that leaves room for the
+  controls, with the shortcuts below the numbers. Auto uses 1×9 when 44 dp keys
+  fit beside the board and the controls fit without scrolling. Otherwise it
+  uses 3×3 if the controls fit. If 3×3 would scroll, Auto tries a 1×9 row with keys
+  at least 36 dp wide. If neither layout fits, the 3×3 controls can scroll.
+  In portrait, Auto uses 1×9 when it gives the board meaningfully more space
+  and can keep 44 dp keys, or when 3×3 would scroll and the row fits. A manual
+  1×9 choice uses keys at least 36 dp wide and falls back to 3×3 when the
+  available width is insufficient.
 - After a win, choose **View board** and then **Replay Puzzle** to solve it again
   for practice. Only the first completion is recorded in your stats.
 

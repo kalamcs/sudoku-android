@@ -37,6 +37,7 @@ import androidx.test.espresso.matcher.RootMatchers.isPlatformPopup
 import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.espresso.matcher.ViewMatchers.hasErrorText
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
+import androidx.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.isEnabled
 import androidx.test.espresso.matcher.ViewMatchers.isSelected
@@ -326,31 +327,34 @@ class NativeGameTest {
                 }
                 val context = activity.createConfigurationContext(landscape)
                 val ui = Ui(context)
-                val puzzles = ui.text("Start New Puzzle")
-                val stats = ui.text("Statistics")
-                val actions = ui.text("Settings")
-                val panels = HomePanels(context, ui, puzzles, stats, actions)
-                fun size(width: Int) {
-                    panels.measure(View.MeasureSpec.makeMeasureSpec(ui.dp(width), View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-                    panels.layout(0, 0, panels.measuredWidth, panels.measuredHeight)
-                }
-                size(840)
-                assertTrue(stats.left > puzzles.right)
-                assertEquals(puzzles.top, stats.top)
-                assertEquals(puzzles.left, actions.left)
-                assertTrue(actions.top > puzzles.bottom)
+                for (hasContinueCard in listOf(false, true)) {
+                    val puzzles = ui.text("Start New Puzzle").apply { minimumHeight = ui.dp(if (hasContinueCard) 176 else 80) }
+                    val stats = ui.text("Statistics").apply { minimumHeight = ui.dp(280) }
+                    val actions = ui.text("Settings").apply { minimumHeight = ui.dp(48) }
+                    val panels = HomePanels(context, ui, puzzles, stats, actions, hasContinueCard)
+                    fun size(width: Int) {
+                        panels.measure(View.MeasureSpec.makeMeasureSpec(ui.dp(width), View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                        panels.layout(0, 0, panels.measuredWidth, panels.measuredHeight)
+                    }
+                    size(840)
+                    assertTrue(stats.left > puzzles.right)
+                    assertEquals(puzzles.top, stats.top)
+                    assertEquals(puzzles.left, actions.left)
+                    if (hasContinueCard) assertEquals(stats.bottom, actions.bottom)
+                    else assertEquals(puzzles.bottom + ui.dp(12), actions.top)
 
-                size(480)
-                assertEquals(puzzles.left, stats.left)
-                assertTrue(stats.top > puzzles.bottom)
-                assertTrue(actions.top > stats.bottom)
+                    size(480)
+                    assertEquals(puzzles.left, stats.left)
+                    assertTrue(stats.top > puzzles.bottom)
+                    assertTrue(actions.top > stats.bottom)
+                }
             }
         }
     }
 
-    @Test fun landscapeHomeCanUseTheFullPageWidth() {
-        installFixture()
+    @Test fun landscapeHomeWithoutContinueKeepsActionsVisible() {
+        installFixture(elapsedMs = 10_000)
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
             scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
             val deadline = SystemClock.uptimeMillis() + 8_000
@@ -364,7 +368,13 @@ class NativeGameTest {
                         measured = true
                     }
                 }
-                if (measured) return
+                if (measured) {
+                    onView(withText("Start New Puzzle")).check(matches(isDisplayed()))
+                    onView(withText("Continue Puzzle")).check(doesNotExist())
+                    onView(withContentDescription("How to Play")).check(matches(isCompletelyDisplayed()))
+                    onView(withContentDescription("Settings")).check(matches(isCompletelyDisplayed()))
+                    return
+                }
                 SystemClock.sleep(150)
             } while (SystemClock.uptimeMillis() < deadline)
             throw AssertionError("The landscape dashboard did not finish laying out")
@@ -409,23 +419,27 @@ class NativeGameTest {
                 val interactive = contents.filterIsInstance<AppCompatButton>()
                 val header = (contents.single { it.contentDescription == "Back to home" }.parent as View).parent as View
                 for ((widthDp, heightDp) in listOf(320 to 568, 360 to 640, 393 to 852, 430 to 932,
-                    568 to 320, 640 to 360, 764 to 347, 852 to 393, 932 to 430, 700 to 1200, 430 to 640)) {
+                    568 to 320, 640 to 360, 696 to 294, 764 to 380, 852 to 393, 932 to 430, 700 to 1200, 430 to 640)) {
                     val landscape = widthDp > heightDp
                     val width = dp(widthDp - if (landscape) 48 else 0)
                     val height = dp(heightDp - if (landscape) 24 else 72)
                     measureViewport(layout, width, height)
                     val viewport = "${widthDp}×$heightDp"
+                    val contentHeight = layout.getChildAt(0).height
                     assertEquals(board.width, board.height)
-                    assertFalse("$viewport requires scrolling (content ${layout.getChildAt(0).height}px, " +
-                        "viewport ${layout.height}px, board ${board.height}px)", layout.canScrollVertically(1))
+                    if (!landscape || widthDp > 640) {
+                        assertFalse("$viewport requires scrolling (content $contentHeight, viewport $height)",
+                            layout.canScrollVertically(1))
+                    }
+                    if (widthDp == 568) assertTrue(layout.canScrollVertically(1))
                     assertEquals(landscape, layout.sideBySide)
                     if (landscape) {
-                        assertEquals("$viewport automatic keypad", if (widthDp >= 764) 9 else 3, layout.keypadColumns)
+                        val columns = if (widthDp == 696 || widthDp >= 852) 9 else 3
+                        assertEquals("$viewport automatic keypad", columns, layout.keypadColumns)
                         assertTrue("$viewport must keep the board and controls separate", board.right < toolbar.left)
-                        val minPanel = maxOf(5 * dp(44) + 4 * dp(4),
-                            if (layout.keypadColumns == 9) 9 * dp(44) + 8 * dp(2) else 0)
+                        val minPanel = 5 * dp(44) + 4 * dp(4)
                         val largestBoard = minOf(height - 2 * dp(4), width - 2 * dp(8) - dp(10) - minPanel)
-                        assertEquals("$viewport should maximize board height", largestBoard, board.height)
+                        assertEquals("$viewport must size the board independently of the keypad", largestBoard, board.height)
                         assertEquals("$viewport should align the header and board", board.top, header.top)
                         assertTrue("$viewport should place navigation in the right pane", header.left > board.right)
                     } else if (heightDp >= 852) {
@@ -435,18 +449,19 @@ class NativeGameTest {
                     if (widthDp == 393 || heightDp >= 852 && !landscape) assertEquals(3, layout.keypadColumns)
                     val digits = interactive.filterIsInstance<DigitKey>()
                     assertEquals(9, digits.size)
-                    if (landscape && layout.keypadColumns == 9) {
-                        val keypad = digits.first().parent as View
-                        assertEquals(1, digits.map { it.top }.distinct().size)
-                        assertTrue("$viewport places shortcuts below the keypad", shortcuts.top >= keypad.bottom)
-                    }
+                    val keypad = digits.first().parent as View
+                    assertEquals(9 / layout.keypadColumns, digits.map { it.top }.distinct().size)
+                    assertTrue("$viewport places shortcuts below the keypad", shortcuts.top >= keypad.bottom)
                     assertTrue(digits.all { it.stackedCount == (layout.keypadColumns == 9) })
-                    assertTrue("$viewport keypad touch targets", digits.all { it.width >= dp(44) && it.height >= dp(44) })
+                    val minKeyWidth = dp(if (widthDp == 696) 36 else 44)
+                    assertTrue("$viewport keypad touch targets", digits.all { it.width >= minKeyWidth && it.height >= dp(44) })
+                    if (widthDp == 696) assertTrue(digits.all { it.width < dp(44) })
                     val origin = IntArray(2).apply(layout::getLocationOnScreen)
                     for (button in interactive) {
                         val at = IntArray(2).apply(button::getLocationOnScreen)
                         assertTrue("$viewport clips ${button.text}", at[0] >= origin[0] && at[1] >= origin[1] &&
-                            at[0] + button.width <= origin[0] + width && at[1] + button.height <= origin[1] + height)
+                            at[0] + button.width <= origin[0] + width &&
+                            at[1] + button.height <= origin[1] + maxOf(height, contentHeight))
                     }
                 }
                 val originalSizes = text.associateWith { it.textSize }
@@ -489,11 +504,16 @@ class NativeGameTest {
                         val solver = activity.findViewById<SolvingLayout>(R.id.page_scroll)
                         val (width, height) = solver.width to solver.height
                         val density = activity.resources.displayMetrics.density
-                        measureViewport(solver, (430 * density).roundToInt(), (860 * density).roundToInt())
+                        fun dp(value: Int) = (value * density).roundToInt()
+                        measureViewport(solver, dp(430), dp(860))
                         assertEquals(columns, solver.keypadColumns)
-                        measureViewport(solver, (320 * density).roundToInt(), (496 * density).roundToInt())
+                        measureViewport(solver, dp(320), dp(496))
                         assertEquals(3, solver.keypadColumns)
                         assertFalse(solver.canScrollVertically(1))
+                        measureViewport(solver, dp(724), dp(356))
+                        val board = TreeIterables.depthFirstViewTraversal(solver).filterIsInstance<BoardView>().single()
+                        assertEquals(dp(356) - 2 * dp(4), board.height)
+                        assertEquals(if (choice == KeypadLayout.ROW) 9 else 3, solver.keypadColumns)
                         measureViewport(solver, width, height)
                     }
                 }
