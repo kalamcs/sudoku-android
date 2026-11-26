@@ -98,26 +98,32 @@ and links to their worked examples.
 
 ## Puzzle difficulty
 
-A clue is a number that is already on the board when the puzzle starts. Every
-puzzle has exactly one solution.
+Difficulty follows the Sudoku Explainer (SE) rating, which records the hardest
+technique used along the rater's solve path. All puzzles have exactly one
+solution. Existing saves keep their original difficulty.
 
-| Level | Target clues | How the app chooses puzzles |
+| Level | SE rating | How the app chooses puzzles |
 |---|---:|---|
-| Easy | 40–45 | Removes clues from a completed grid while keeping a unique solution. |
-| Medium | 32–37 | Uses the same generation method with fewer starting clues. |
-| Hard | 26–30 | Checks that the puzzle can be solved with naked singles, hidden singles, locked candidates, and naked pairs. |
-| Extreme | 23–25 | Varies prechecked boards that require reasoning beyond the Hard technique set. |
+| Easy | Up to 2.5 | Generates a fresh puzzle on the phone and verifies that naked and hidden singles can solve it. Those techniques top out at 2.3. |
+| Medium | 2.6–4.4 | Generates a variant from one of 492 bundled templates. |
+| Hard | 4.5–8.5 | Generates a variant from one of 354 bundled templates. |
+| Extreme | 8.6 and above | Generates a variant from one of 324 bundled templates. |
 
-Clue placement also affects difficulty. Two puzzles with the same clue count
-can call for different techniques. The Hard check sets an upper limit on the
-techniques needed, so some Hard puzzles can be solved with singles alone.
+The app reads one randomly selected record from the difficulty's file in the
+APK. The record contains the template's clues and solution in four bits per
+cell and three transformations to choose from. The phone applies one of those
+transformations to both grids. Sukaku Explainer rated every resulting board
+in its classic configuration during preparation, and the app's Kotlin
+solver checks each one for a unique solution in the test suite.
 
-Further reading on puzzle difficulty:
-
-- [HoDoKu's rating and difficulty levels](https://hodoku.dev/docs_cre) explains
-  a technique-based rating that combines the hardest step with the total score.
-- Radek Pelánek's [Difficulty Rating of Sudoku Puzzles](https://arxiv.org/abs/1403.7373)
-  compares difficulty metrics with how people solve puzzles.
+The imported templates come from Grant McLean's
+[public-domain Sudoku Exchange Puzzle Bank](https://github.com/grantm/sudoku-exchange-puzzle-bank),
+which was generated using QQWing. The rater is based on Nicolas Juillerat's
+Sudoku Explainer. Credit to Suuudokuuu for its
+[SE difficulty guide](https://www.suuudokuuu.com/guides/sudoku-difficulty-rating)
+and [hardest-puzzle reference](https://www.suuudokuuu.com/hardest-sudoku-puzzles).
+The [puzzle bank notes](android/app/src/main/resources/puzzles/SOURCES.md)
+record the pinned sources and how to reproduce the bank.
 
 ## Appearance
 
@@ -150,7 +156,7 @@ npm run apk
 
 The debug APK is at `android/app/build/outputs/apk/debug/app-debug.apk`.
 `npm run aab` builds the release app bundle. Both scripts call Gradle directly.
-Node package installation is only needed for the old web tests and icon tools.
+Install the Node dependencies to regenerate the launcher artwork with `npm run icons`.
 `npm test` runs JVM unit tests. To run the Android UI tests, start an emulator
 or connect a test device and run `cd android && ./gradlew connectedDebugAndroidTest`.
 
@@ -220,12 +226,12 @@ stats from the old local storage into Android SharedPreferences.
 |---|---|
 | `android/app/src/main/kotlin/com/kalamcs/sudoku/` | Native activity, board, illustrated guide, puzzle engine, game state, and storage |
 | `android/app/src/test/kotlin/com/kalamcs/sudoku/` | Puzzle, hint, saved-data, and board viewport tests |
-| `www/`, `src/native.js`, `test/` | Prior web implementation and its tests, available via `npm run test:web` |
+| `firebase.json`, `firestore.rules`, `tests/firestore-rules.test.mjs` | Feedback configuration and Firestore rules tests |
 | `assets/` and `scripts/generate-icons.mjs` | Launcher icon source and regeneration via `npm run icons` |
 
 The Android UI uses native widgets throughout and draws the game and guide
-boards with Canvas. The build does not package the web app. An offscreen
-WebView is used only to import local storage from a previous installation.
+boards with Canvas. An offscreen WebView imports local storage from a previous
+web-based installation.
 
 ## Release to Google Play
 

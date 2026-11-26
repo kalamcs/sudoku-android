@@ -7,8 +7,8 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
-internal enum class Difficulty(val label: String, val clues: IntRange) {
-    EASY("Easy", 40..45), MEDIUM("Medium", 32..37), HARD("Hard", 26..30), EXTREME("Extreme", 23..25);
+internal enum class Difficulty(val label: String, val seRatings: IntRange) {
+    EASY("Easy", 10..25), MEDIUM("Medium", 26..44), HARD("Hard", 45..85), EXTREME("Extreme", 86 until 200);
 
     val key: String get() = name.lowercase()
 
@@ -206,47 +206,23 @@ internal object Sudoku {
         return solutions
     }
 
-    fun generate(difficulty: Difficulty, random: Random = Random.Default): Puzzle {
-        if (difficulty == Difficulty.EXTREME) return vary(extreme.random(random), difficulty, random)
-        repeat(6) {
-            lateinit var solution: IntArray
-            search(IntArray(COUNT), 1, random) { solution = it.copyOf() }
-            val givens = solution.copyOf()
-            val target = random.nextInt(difficulty.clues.first, difficulty.clues.last + 1)
-            var clues = COUNT
-            for (cell in indexes.shuffled(random)) {
-                if (clues == target) break
-                givens[cell] = 0
-                if (countSolutions(givens) == 1) clues-- else givens[cell] = solution[cell]
-            }
-            if (clues in difficulty.clues && (difficulty != Difficulty.HARD || canSolveWithoutSearch(givens))) {
-                return Puzzle(difficulty, givens, solution)
-            }
-        }
-        val fallback = vary(hardFallback, difficulty, random)
-        if (difficulty != Difficulty.HARD) {
-            // Adding true clues to a uniquely solvable puzzle preserves its unique solution.
-            val target = random.nextInt(difficulty.clues.first, difficulty.clues.last + 1)
-            val empty = indexes.filter { fallback.givens[it] == 0 }
-            for (cell in empty.shuffled(random).take(target - (COUNT - empty.size))) {
-                fallback.givens[cell] = fallback.solution[cell]
+    fun generateEasy(random: Random = Random.Default): Puzzle {
+        lateinit var solution: IntArray
+        search(IntArray(COUNT), 1, random) { solution = it.copyOf() }
+        val givens = solution.copyOf()
+        val target = random.nextInt(40, 46)
+        var clues = COUNT
+        // Singles are forced in every solution and all cost at most 2.3 in classic SE.
+        for (cell in indexes.shuffled(random)) {
+            if (clues == target) break
+            givens[cell] = 0
+            if (solvesWithSingles(givens)) {
+                clues--
+            } else {
+                givens[cell] = solution[cell]
             }
         }
-        return fallback
-    }
-
-    private fun vary(template: String, difficulty: Difficulty, random: Random): Puzzle {
-        fun bands() = (0..2).shuffled(random).flatMap { band -> (0..2).shuffled(random).map { 3 * band + it } }
-        val order = listOf(0) + digits.shuffled(random)
-        val rows = bands()
-        val columns = bands()
-        val transpose = random.nextBoolean()
-        val givens = IntArray(COUNT) {
-            val r = rows[it / SIZE]
-            val c = columns[it % SIZE]
-            order[template[if (transpose) c * SIZE + r else r * SIZE + c] - '0']
-        }
-        return Puzzle(difficulty, givens, checkNotNull(solve(givens)))
+        return Puzzle(Difficulty.EASY, givens, solution)
     }
 
     private data class Move(val cell: Int, val digit: Int, val unit: SudokuUnit? = null) {
@@ -459,13 +435,16 @@ internal object Sudoku {
         return Analysis(null, candidates, eliminations)
     }
 
-    fun canSolveWithoutSearch(board: IntArray): Boolean {
-        if (board.size != COUNT || board.any { it !in 0..SIZE } ||
-            indexes.any { cell -> board[cell] != 0 && peers[cell].any { board[it] == board[cell] } }) return false
+    fun solvesWithSingles(board: IntArray): Boolean {
+        // Callers start with a valid partial grid.
         val work = board.copyOf()
+        val candidates = candidateBoard(work)
         while (0 in work) {
-            val move = analyze(work).move ?: return false
+            val move = single(candidates) ?: return false
             work[move.cell] = move.digit
+            candidates[move.cell] = 0
+            val allowed = bit(move.digit).inv()
+            for (peer in peers[move.cell]) candidates[peer] = candidates[peer] and allowed
         }
         return true
     }
@@ -647,14 +626,4 @@ internal object Sudoku {
         return Hint(cell, digit, Technique.CONTRADICTION, listOf(introduction) + trials +
             HintStep("Only ${digit} remains for this cell."))
     }
-
-    private const val hardFallback = "000800094009004000007906805003090600000020050960008200450080030000100000010005048"
-    private val extreme = listOf(
-        "080090000041070005000200800500010009070300040006025000900002000000000700008000260",
-        "000000027120000006000001804000800670003007090010000000008090300200068400500000000",
-        "000000000060740300048000510003600000107000000000105408300200104000409060000050000",
-        "005200000000001000010040700001096082070050009004000300060080040000020103500000070",
-        "000000000800406900700028001000003020040000610002700000086107050000005860050000009",
-        "094030000800900000000005030050006080100003400060040000010600700087090000000102908",
-    )
 }

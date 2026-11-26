@@ -1,9 +1,6 @@
 # dependencies
 node_modules/
 
-# generated web bundle (npm run build:native)
-www/native.js
-
 # Android build output
 android/.gradle/
 android/build/
@@ -24,4 +21,3 @@ keystore.properties
 
 # tooling / OS
 .DS_Store
-.capacitor/

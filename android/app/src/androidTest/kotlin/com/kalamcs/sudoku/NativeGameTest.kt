@@ -61,6 +61,16 @@ import kotlin.math.roundToInt
 
 @RunWith(AndroidJUnit4::class)
 class NativeGameTest {
+    @Test fun everyDifficultyCanCreateAPuzzleInTheInstalledApp() {
+        val assets = InstrumentationRegistry.getInstrumentation().targetContext.assets
+        for (difficulty in Difficulty.entries) {
+            val puzzle = RatedPuzzleBank.generate(difficulty, assets)
+            assertEquals(difficulty, puzzle.difficulty)
+            assertEquals(1, Sudoku.countSolutions(puzzle.givens, 2))
+            assertTrue(puzzle.solution.contentEquals(Sudoku.solve(puzzle.givens)))
+        }
+    }
+
     @Test fun dashboardShowsTheSavedPuzzleAndAllFourDifficultyTiles() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
