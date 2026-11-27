@@ -108,9 +108,7 @@ internal class BoardView(
         override fun getVirtualViewAt(x: Float, y: Float) = if (hidden) INVALID_ID else viewport.cellAt(x, y, size) ?: INVALID_ID
 
         override fun getVisibleVirtualViews(ids: MutableList<Int>) {
-            if (hidden || game == null) return
-            val side = size.toInt()
-            for (cell in 0..80) if (cellBounds(cell).intersects(0, 0, side, side)) ids.add(cell)
+            for (cell in 0 until Sudoku.COUNT) if (isVisibleCell(cell)) ids.add(cell)
         }
 
         override fun onPopulateNodeForVirtualView(id: Int, node: AccessibilityNodeInfoCompat) {
@@ -142,7 +140,7 @@ internal class BoardView(
         }
 
         override fun onPerformActionForVirtualView(id: Int, action: Int, arguments: Bundle?): Boolean {
-            if (hidden || action != AccessibilityNodeInfo.ACTION_CLICK) return false
+            if (action != AccessibilityNodeInfo.ACTION_CLICK || !isVisibleCell(id)) return false
             onCell.invoke(id)
             return true
         }
@@ -161,7 +159,7 @@ internal class BoardView(
         this.game = game
         this.hidden = hidden
         invalidate()
-        accessibility?.invalidateRoot()
+        updateVirtualCells()
     }
 
     fun render(diagram: Diagram, description: String) {
@@ -179,7 +177,16 @@ internal class BoardView(
     private fun viewportChanged() {
         onZoomChanged?.invoke(viewport.scale > 1f)
         invalidate()
-        accessibility?.invalidateRoot()
+        updateVirtualCells()
+    }
+
+    private fun updateVirtualCells() {
+        val helper = accessibility ?: return
+        val focused = helper.keyboardFocusedVirtualViewId
+        if (focused != ExploreByTouchHelper.INVALID_ID && !isVisibleCell(focused)) {
+            helper.clearKeyboardFocusForVirtualView(focused)
+        }
+        helper.invalidateRoot()
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -303,6 +310,12 @@ internal class BoardView(
         return Rect(x.roundToInt(), y.roundToInt(), (x + step).roundToInt(), (y + step).roundToInt())
     }
 
+    private fun isVisibleCell(cell: Int): Boolean {
+        val side = size.toInt()
+        return !hidden && game != null && cell in 0 until Sudoku.COUNT &&
+            cellBounds(cell).intersects(0, 0, side, side)
+    }
+
     fun reveal(cell: Int) {
         if (viewport.scale > 1f) {
             val bounds = cellBounds(cell)
@@ -358,7 +371,6 @@ internal class BoardView(
                 val isGiven = active == null || active.puzzle.givens[cell] != 0
                 paint.color = when {
                     incorrect || conflicting -> palette.error
-                    matching -> palette.accentInk
                     isGiven -> palette.givenDigit
                     else -> palette.enteredDigit
                 }

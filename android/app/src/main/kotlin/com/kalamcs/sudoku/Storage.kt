@@ -71,7 +71,9 @@ internal object SaveFormat {
     private fun JSONObject.putBoard(values: IntArray, notes: IntArray, pruning: PrunedNotes?) =
         put("b", values.joinToString(""))
             .put("n", notes.joinToString(".") { if (it == 0) "" else Sudoku.digitsIn(it).joinToString("") })
-            .put("prunedNotes", pruning?.let { JSONObject().put("cell", it.cell).put("peers", JSONArray(it.peers)) })
+            .put("prunedNotes", pruning?.let {
+                JSONObject().put("cell", it.cell).put("peers", JSONArray(it.peers)).put("entryNotes", it.entryNotes)
+            })
 
     private fun encodeHistory(stack: List<BoardSnapshot>) = JSONArray().apply {
         for (board in stack) put(JSONObject().putBoard(board.values, board.notes, board.prunedNotes))
@@ -102,10 +104,12 @@ internal object SaveFormat {
         if (cell !in values.indices || givens[cell] != 0 || values[cell] == 0) return null
         val related = Sudoku.peers[cell]
         val peers = data.optJSONArray("peers") ?: return null
-        if (peers.length() !in 1..related.size) return null
+        if (peers.length() > related.size) return null
         val cells = List(peers.length()) { peers.optInt(it, -1) }
         if (cells.any { it !in related || values[it] != 0 } || cells.distinct().size != cells.size) return null
-        return PrunedNotes(cell, cells)
+        val entryNotes = (data.opt("entryNotes") as? Int)?.takeIf { it and Sudoku.ALL == it } ?: 0
+        if (cells.isEmpty() && entryNotes == 0) return null
+        return PrunedNotes(cell, cells, entryNotes)
     }
 
     fun records(raw: String?): Map<Difficulty, Record> {

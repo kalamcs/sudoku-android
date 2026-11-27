@@ -54,10 +54,12 @@ python3 -B scripts/prepare-puzzle-bank.py "$se_work/SukakuExplainer.jar" "$se_wo
   "$se_work/medium-candidates.txt" "$se_work/se-templates.tsv" --expand \
   --checkpoints "$se_work/checkpoints"
 python3 -B scripts/pack-puzzle-bank.py "$se_work/se-templates.tsv" "$se_work/packed"
-cmp "$se_work/se-templates.tsv" android/app/src/main/resources/puzzles/se-templates.tsv
-for level in medium hard extreme; do
-  cmp "$se_work/packed/$level.sudoku" "android/app/src/main/assets/puzzles/$level.sudoku"
-done
+(
+  cmp "$se_work/se-templates.tsv" android/app/src/main/resources/puzzles/se-templates.tsv || exit
+  for level in medium hard extreme; do
+    cmp "$se_work/packed/$level.sudoku" "android/app/src/main/assets/puzzles/$level.sudoku" || exit
+  done
+)
 ```
 
 The `cmp` commands check reproducibility. After an intentional bank update,

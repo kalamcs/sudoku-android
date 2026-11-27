@@ -3,8 +3,11 @@
 
 package com.kalamcs.sudoku
 
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.content.res.ColorStateList
+import android.provider.Settings
 import android.text.InputFilter
 import android.text.InputType
 import android.util.Patterns
@@ -15,6 +18,7 @@ import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.Toast
 import androidx.appcompat.widget.AppCompatCheckBox
 import androidx.appcompat.widget.AppCompatEditText
 import androidx.core.widget.doAfterTextChanged
@@ -38,6 +42,21 @@ internal class FeedbackScreen(private val context: Context, private val ui: Ui) 
         page.isFocusableInTouchMode = true
         page.requestFocus()
         ui.add(page, ui.pageHeading("Send Feedback", back))
+        if (delivery == FeedbackDelivery.Pending) {
+            ui.add(page, ui.heading("Waiting for confirmation", 18), 16)
+            ui.add(page, ui.text(
+                "Check your internet connection. You can go back to Sudoku and reopen this screen to check delivery.",
+                15,
+            ).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }, 6)
+            ui.add(page, ui.button("Network settings") {
+                try {
+                    context.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
+                } catch (_: ActivityNotFoundException) {
+                    Toast.makeText(context, "Check your connection in your device settings.", Toast.LENGTH_SHORT).show()
+                }
+            }, 14)
+            return
+        }
         val intro = ui.row().apply {
             addView(ImageView(context).apply {
                 setImageDrawable(ui.icon(R.drawable.ic_feedback, 37))

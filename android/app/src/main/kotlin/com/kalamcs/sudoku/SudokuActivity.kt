@@ -37,7 +37,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnLayout
-import androidx.lifecycle.ViewModelProvider
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -53,7 +52,6 @@ class SudokuActivity : AppCompatActivity() {
     private val guide by lazy { GuideScreen(this, ui) }
     private val settings by lazy { SettingsScreen(this, ui) }
     private val feedbackPage by lazy { FeedbackScreen(this, ui) }
-    private val feedbackModel by lazy { ViewModelProvider(this)[FeedbackModel::class.java] }
     private val puzzleWorker = Executors.newSingleThreadExecutor()
     private val hintWorker = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
@@ -69,7 +67,7 @@ class SudokuActivity : AppCompatActivity() {
     private var guideTab = GuideTab.RULES
     private var guideReturnToIndex = true
     private var guideScrollY = 0
-    private var guideReturnHint: HintDialogState? = null
+    private var guideReturnHint: HintDialogPosition? = null
     private var lesson: Technique? = null
     private var board: BoardView? = null
     private var controls: GameControls? = null
@@ -96,7 +94,7 @@ class SudokuActivity : AppCompatActivity() {
         val notes: IntArray,
     )
 
-    private data class HintDialogState(val hint: Hint, val values: IntArray, val scrollY: Int, val previewOpen: Boolean)
+    private data class HintDialogPosition(val scrollY: Int = 0, val previewOpen: Boolean = false)
 
     private data class GameControls(
         val time: TextView,
@@ -148,7 +146,7 @@ class SudokuActivity : AppCompatActivity() {
                 }
             }
         })
-        feedbackModel.delivery.observe(this) {
+        FeedbackModel.delivery.observe(this) {
             if (screen == Screen.FEEDBACK) renderFeedback()
         }
         restoreGame {
@@ -156,6 +154,9 @@ class SudokuActivity : AppCompatActivity() {
             guideTab = GuideTab.entries.firstOrNull { it.name == state?.getString("guideTab") } ?: GuideTab.RULES
             guideReturnToIndex = state?.getBoolean("guideIndex", true) ?: true
             guideScrollY = state?.getInt("guideScrollY") ?: 0
+            if (state?.containsKey("guideHintScrollY") == true) {
+                guideReturnHint = HintDialogPosition(state.getInt("guideHintScrollY"), state.getBoolean("guideHintPreviewOpen"))
+            }
             settingsOrigin = if (state?.getBoolean("settingsFromGame") == true) Screen.GAME else Screen.HOME
             feedbackOrigin = Screen.entries.firstOrNull { it.name == state?.getString("feedbackOrigin") }
                 ?: if (state?.getBoolean("feedbackFromGame") == true) Screen.GAME else Screen.SETTINGS
@@ -214,6 +215,10 @@ class SudokuActivity : AppCompatActivity() {
         outState.putString("guideTab", guideTab.name)
         outState.putBoolean("guideIndex", guideReturnToIndex)
         outState.putInt("guideScrollY", guideScrollY)
+        guideReturnHint?.let { position ->
+            outState.putInt("guideHintScrollY", position.scrollY)
+            outState.putBoolean("guideHintPreviewOpen", position.previewOpen)
+        }
         outState.putString("lesson", lesson?.name)
         outState.putBoolean("settingsFromGame", settingsOrigin == Screen.GAME)
         outState.putString("feedbackOrigin", feedbackOrigin.name)
@@ -924,7 +929,7 @@ class SudokuActivity : AppCompatActivity() {
 
     private fun leaveSettings() = returnTo(settingsOrigin)
 
-    private fun openGuide(technique: Technique? = null, hintToRestore: HintDialogState? = null) {
+    private fun openGuide(technique: Technique? = null, hintToRestore: HintDialogPosition? = null) {
         guideOrigin = screen
         guideReturnToIndex = technique == null
         guideTab = GuideTab.RULES
@@ -976,7 +981,7 @@ class SudokuActivity : AppCompatActivity() {
         guideReturnHint = null
         returnTo(guideOrigin)
         if (screen == Screen.GAME && restore != null) {
-            showHint(restore.hint, restore.values, restore.scrollY, restore.previewOpen)
+            requestHint(restore)
         }
     }
 
@@ -995,7 +1000,7 @@ class SudokuActivity : AppCompatActivity() {
         hintTask = null
     }
 
-    private fun requestHint() {
+    private fun requestHint(position: HintDialogPosition = HintDialogPosition()) {
         val active = game ?: return
         if (active.paused || active.finished || hintPending) return
         val mistakes = active.mistakes()
@@ -1007,7 +1012,7 @@ class SudokuActivity : AppCompatActivity() {
         val previous = hintProgress
         if (previous != null && previous.values.contentEquals(active.values) &&
             previous.crossedOff.contentEquals(crossedOff) && previous.notes.contentEquals(active.notes)) {
-            showHint(previous.hint, previous.values)
+            showHint(previous.hint, previous.values, position)
             return
         }
         hintPending = true
@@ -1034,7 +1039,7 @@ class SudokuActivity : AppCompatActivity() {
                     result.isFailure -> message("Hint", "Finding an explanation took too long. You can try again.")
                     hint != null -> {
                         hintProgress = HintProgress(values, hint, crossedOff, notes)
-                        showHint(hint, values)
+                        showHint(hint, values, position)
                     }
                     else -> message("Hint", "There is no forced move to show for this board.")
                 }
@@ -1052,7 +1057,7 @@ class SudokuActivity : AppCompatActivity() {
             .showThemed()
     }
 
-    private fun showHint(hint: Hint, values: IntArray, scrollY: Int = 0, previewOpen: Boolean = false) {
+    private fun showHint(hint: Hint, values: IntArray, position: HintDialogPosition) {
         val panel = ui.column().apply { setPadding(ui.dp(22), ui.dp(4), ui.dp(22), ui.dp(12)) }
         val removing = hint.removals.isNotEmpty()
         val summary = ui.card(12).apply { background = ui.shape(ui.palette.selectedCell, 12) }
@@ -1067,7 +1072,7 @@ class SudokuActivity : AppCompatActivity() {
             ui.add(summary, ui.heading("Put ${hint.digit} in ${Sudoku.name(hint.cell)}.", 17))
         }
         ui.add(panel, summary)
-        val preview = if (removing) addHintPreview(panel, hint, values, previewOpen) else null
+        val preview = if (removing) addHintPreview(panel, hint, values, position.previewOpen) else null
         ui.add(panel, ui.heading("Why this works", 17), 15)
         val reason = hint.steps.singleOrNull()
         if (!removing && reason != null && reason.details == null) ui.add(panel, ui.text(reason.text, 15), 6)
@@ -1077,10 +1082,10 @@ class SudokuActivity : AppCompatActivity() {
         val scroll = ScrollView(this).apply { addView(panel) }
         for (technique in techniques) {
             ui.add(panel, ui.button(technique.title) {
-                openGuide(technique, HintDialogState(hint, values, scroll.scrollY, preview?.visibility == View.VISIBLE))
+                openGuide(technique, HintDialogPosition(scroll.scrollY, preview?.visibility == View.VISIBLE))
             }, 5)
         }
-        if (scrollY > 0) scroll.doOnLayout { it.scrollTo(0, scrollY) }
+        if (position.scrollY > 0) scroll.doOnLayout { it.scrollTo(0, position.scrollY) }
         AlertDialog.Builder(this)
             .setTitle(hint.heading)
             .setView(scroll)
@@ -1185,17 +1190,17 @@ class SudokuActivity : AppCompatActivity() {
     }
 
     private fun renderFeedback() {
-        val delivery = feedbackModel.delivery.value ?: FeedbackDelivery.Ready
+        val delivery = FeedbackModel.delivery.value ?: FeedbackDelivery.Ready
         if (delivery == FeedbackDelivery.Sent) {
             renderFeedbackSent()
             return
         }
         screen = Screen.FEEDBACK
-        feedbackPage.form(page(), feedbackModel.draft, delivery, ::leaveFeedback,
-            keepDraft = { feedbackModel.draft = it },
+        feedbackPage.form(page(), FeedbackModel.draft, delivery, ::leaveFeedback,
+            keepDraft = { FeedbackModel.draft = it },
             submit = {
                 WindowCompat.getInsetsController(window, window.decorView).hide(WindowInsetsCompat.Type.ime())
-                feedbackModel.submit()
+                FeedbackModel.submit(application)
             },
         )
     }
@@ -1209,7 +1214,7 @@ class SudokuActivity : AppCompatActivity() {
         val sent = screen == Screen.FEEDBACK_SENT
         WindowCompat.getInsetsController(window, window.decorView).hide(WindowInsetsCompat.Type.ime())
         returnTo(feedbackOrigin)
-        if (sent) feedbackModel.finish()
+        if (sent) FeedbackModel.finish()
     }
 
     private fun message(title: String, content: String) {
@@ -1230,6 +1235,10 @@ class SudokuActivity : AppCompatActivity() {
     }
 
     private fun AlertDialog.Builder.showThemed(pauseClock: Boolean = false): AlertDialog {
+        if (hintPending) {
+            cancelHint()
+            updateGame()
+        }
         val resumeClock = dialogPausesClock && !pauseClock
         dismissPageDialog()
         val dialog = create()

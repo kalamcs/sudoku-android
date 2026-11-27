@@ -7,6 +7,7 @@ import argparse
 from collections import Counter
 from itertools import groupby
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from puzzle_equivalence import DistinctTemplates, GROUP_ORDERS, transformation
 
@@ -79,8 +80,16 @@ def pack(source, output):
         if not catalog:
             raise ValueError(f"No templates for {level}")
     output.mkdir(parents=True, exist_ok=True)
-    for level, catalog in levels.items():
-        (output / f"{level}.sudoku").write_bytes(catalog)
+    with TemporaryDirectory(dir=output, prefix=".bank-") as directory:
+        staging = Path(directory)
+        for level, catalog in levels.items():
+            name = f"{level}.sudoku"
+            if (output / name).is_dir():
+                raise IsADirectoryError(output / name)
+            (staging / name).write_bytes(catalog)
+        for level in levels:
+            name = f"{level}.sudoku"
+            (staging / name).replace(output / name)
     print(f"Packed templates {dict(counts)}")
 
 

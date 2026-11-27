@@ -6,12 +6,15 @@ package com.kalamcs.sudoku
 import android.app.Application
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import androidx.lifecycle.AndroidViewModel
+import android.os.Handler
+import android.os.Looper
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -23,6 +26,7 @@ internal enum class FeedbackType(val key: String, val label: String) {
 
 internal const val MAX_FEEDBACK_LENGTH = 1000
 internal const val MAX_CONTACT_LENGTH = 254
+private const val FEEDBACK_WAIT_MS = 10_000L
 
 internal data class FeedbackDraft(
     val type: FeedbackType = FeedbackType.SUGGESTION,
@@ -34,18 +38,24 @@ internal data class FeedbackDraft(
 internal sealed interface FeedbackDelivery {
     data object Ready : FeedbackDelivery
     data object Sending : FeedbackDelivery
+    data object Pending : FeedbackDelivery
     data object Sent : FeedbackDelivery
     data class Failed(val reason: String) : FeedbackDelivery
 }
 
-internal class FeedbackModel(application: Application) : AndroidViewModel(application) {
+// Keep an outstanding write tied to the app process across activity relaunches.
+internal object FeedbackModel {
     var draft = FeedbackDraft()
     private val deliveryState = MutableLiveData<FeedbackDelivery>(FeedbackDelivery.Ready)
     val delivery: LiveData<FeedbackDelivery> get() = deliveryState
+    private val handler = Handler(Looper.getMainLooper())
+    private var submission: Task<DocumentReference>? = null
+    private val showPending = Runnable {
+        if (submission?.isComplete == false) deliveryState.value = FeedbackDelivery.Pending
+    }
 
-    fun submit() {
-        if (deliveryState.value == FeedbackDelivery.Sending || deliveryState.value == FeedbackDelivery.Sent) return
-        val context = getApplication<Application>()
+    fun submit(context: Application) {
+        if (submission != null || deliveryState.value == FeedbackDelivery.Sent) return
         if (FirebaseApp.getApps(context).none { it.name == FirebaseApp.DEFAULT_APP_NAME }) {
             deliveryState.value = FeedbackDelivery.Failed("Feedback is unavailable in this build.")
             return
@@ -67,17 +77,24 @@ internal class FeedbackModel(application: Application) : AndroidViewModel(applic
 
         val auth = FirebaseAuth.getInstance()
         val firestore = FirebaseFirestore.getInstance()
-        deliveryState.value = FeedbackDelivery.Sending
         val signedIn = if (auth.currentUser != null) Tasks.forResult(null) else auth.signInAnonymously()
-        signedIn.onSuccessTask { firestore.collection("feedback").add(payload) }
-            .addOnCompleteListener { result ->
-                deliveryState.value = if (result.isSuccessful) FeedbackDelivery.Sent
-                else FeedbackDelivery.Failed("Feedback could not be sent. Your draft is still here. Try again.")
-            }
+        val task = signedIn.onSuccessTask { firestore.collection("feedback").add(payload) }
+        submission = task
+        deliveryState.value = FeedbackDelivery.Sending
+        // Firestore can keep a write queued. Update the UI without starting another write.
+        handler.postDelayed(showPending, FEEDBACK_WAIT_MS)
+        task.addOnCompleteListener { result ->
+            if (submission !== task) return@addOnCompleteListener
+            handler.removeCallbacks(showPending)
+            submission = null
+            deliveryState.value = if (result.isSuccessful) FeedbackDelivery.Sent
+            else FeedbackDelivery.Failed("Feedback could not be sent. Your draft is still here. Try again.")
+        }
     }
 
     fun finish() {
         draft = FeedbackDraft()
         deliveryState.value = FeedbackDelivery.Ready
     }
+
 }

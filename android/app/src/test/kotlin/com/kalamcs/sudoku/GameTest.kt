@@ -3,6 +3,7 @@
 
 package com.kalamcs.sudoku
 
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -65,6 +66,49 @@ class GameTest {
         assertTrue(game.tapDigit(1))
         assertEquals(0, game.values[cells.last()])
         assertEquals(1, game.remaining(1))
+    }
+
+    @Test fun completedDigitsCanBeRemovedButNotAddedAsNotesInEitherEntryOrder() {
+        val notedCell = 10
+        val finalOne = 78
+        val one = Sudoku.bit(1)
+        val seven = Sudoku.bit(7)
+        for (order in EntryOrder.entries) {
+            val game = game()
+            for (cell in game.values.indices.filter { it != finalOne && game.values[it] == 0 && game.puzzle.solution[it] == 1 }) {
+                game.select(cell)
+                assertTrue(game.enter(1))
+            }
+            assertEquals(1, game.remaining(1))
+            game.select(notedCell)
+            game.notesMode = true
+            assertTrue(game.enter(1))
+            assertTrue(game.enter(7))
+            game.select(finalOne)
+            game.notesMode = false
+            assertTrue(game.enter(1))
+            assertEquals(0, game.remaining(1))
+            assertEquals(one or seven, game.notes[notedCell])
+
+            game.changeEntryOrder(order)
+            game.notesMode = true
+            if (order == EntryOrder.CELL_FIRST) {
+                game.select(notedCell)
+                assertTrue(game.canTapDigit(1))
+                assertTrue(game.tapDigit(1))
+                assertFalse(game.canTapDigit(1))
+                assertFalse(game.tapDigit(1))
+            } else {
+                assertTrue(game.canTapDigit(1))
+                assertFalse(game.tapDigit(1))
+                assertEquals(1, game.pickedDigit)
+                assertFalse(game.tapCell(2))
+                assertEquals(0, game.notes[2])
+                assertTrue(game.tapCell(notedCell))
+                assertFalse(game.tapCell(notedCell))
+            }
+            assertEquals(seven, game.notes[notedCell])
+        }
     }
 
     @Test fun changingEntryOrderAfterAWinCarriesIntoReplay() {
@@ -181,6 +225,64 @@ class GameTest {
         assertEquals(four, game.notes[40])
         assertTrue(game.erase())
         assertEquals(four or two or eight, game.notes[3])
+    }
+
+    @Test fun erasingTheLatestEntryRestoresItsOwnNotesThroughSaveAndUndoRedo() {
+        val game = game()
+        val cell = 40
+        val originalNotes = Sudoku.bit(5) or Sudoku.bit(9)
+        game.select(cell)
+        game.notesMode = true
+        assertTrue(game.enter(5))
+        assertTrue(game.enter(9))
+        game.notesMode = false
+        assertTrue(game.enter(5))
+        assertEquals(0, game.notes[cell])
+
+        val restored = checkNotNull(SaveFormat.game(SaveFormat.encode(game, 0)))
+        assertEquals(PrunedNotes(cell, emptyList(), originalNotes), restored.prunedNotes)
+        assertTrue(restored.undo())
+        assertEquals(0, restored.values[cell])
+        assertEquals(originalNotes, restored.notes[cell])
+        assertTrue(restored.redo())
+        assertEquals(5, restored.values[cell])
+        assertEquals(0, restored.notes[cell])
+
+        assertTrue(restored.enter(2))
+        assertEquals(0, restored.notes[cell])
+        assertTrue(restored.erase())
+        assertEquals(0, restored.values[cell])
+        assertEquals(originalNotes, restored.notes[cell])
+    }
+
+    @Test fun tappingTheSameDigitTwiceInCellFirstRestoresTheOriginalNotes() {
+        val game = game()
+        val cell = 40
+        game.select(cell)
+        assertTrue(game.autoNotes())
+        val originalNotes = game.notes[cell]
+        assertEquals(Sudoku.bit(5), originalNotes)
+
+        assertTrue(game.tapDigit(5))
+        assertEquals(5, game.values[cell])
+        assertEquals(0, game.notes[cell])
+        assertTrue(game.tapDigit(5))
+        assertEquals(0, game.values[cell])
+        assertEquals(originalNotes, game.notes[cell])
+    }
+
+    @Test fun olderPeerOnlyPruningStillRestoresThePeerNote() {
+        val game = game()
+        game.notes[3] = Sudoku.bit(4)
+        game.select(2)
+        assertTrue(game.enter(4))
+        val saved = JSONObject(SaveFormat.encode(game, 0)).put(
+            "prunedNotes", JSONObject().put("cell", 2).put("peers", JSONArray(listOf(3))),
+        )
+        val restored = checkNotNull(SaveFormat.game(saved.toString()))
+        assertTrue(restored.erase())
+        assertEquals(0, restored.notes[2])
+        assertEquals(Sudoku.bit(4), restored.notes[3])
     }
 
     @Test fun editingAnotherCellInvalidatesNoteRestoration() {

@@ -3,6 +3,7 @@
 
 package com.kalamcs.sudoku
 
+import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -16,6 +17,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.widget.AppCompatButton
@@ -65,16 +67,31 @@ import kotlin.math.roundToInt
 
 @RunWith(AndroidJUnit4::class)
 class NativeGameTest {
-    private val appearanceStore by lazy { AppearanceStore(InstrumentationRegistry.getInstrumentation().targetContext) }
+    private val targetContext get() = InstrumentationRegistry.getInstrumentation().targetContext
+    private val appearanceStore by lazy { AppearanceStore(targetContext) }
+    private val gamePreferences by lazy { targetContext.getSharedPreferences("sudoku", Context.MODE_PRIVATE) }
     private lateinit var initialAppearance: AppearanceSettings
+    private lateinit var initialGamePreferences: Map<String, *>
 
-    @Before fun setInputPreferences() {
+    @Before fun saveTestPreferences() {
         initialAppearance = appearanceStore.load()
+        initialGamePreferences = gamePreferences.all
         appearanceStore.save(initialAppearance.copy(keypadLayout = KeypadLayout.AUTO, entryOrder = EntryOrder.CELL_FIRST))
+        gamePreferences.edit().putBoolean(LEGACY_IMPORTED, true).apply()
     }
 
-    @After fun restoreInputPreferences() {
-        appearanceStore.save(initialAppearance)
+    @After fun restoreTestPreferences() {
+        try {
+            val editor = gamePreferences.edit()
+                .putString(SaveFormat.GAME, initialGamePreferences[SaveFormat.GAME] as String?)
+                .putString(SaveFormat.STATS, initialGamePreferences[SaveFormat.STATS] as String?)
+            val legacyImported = initialGamePreferences[LEGACY_IMPORTED] as Boolean?
+            if (legacyImported == null) editor.remove(LEGACY_IMPORTED)
+            else editor.putBoolean(LEGACY_IMPORTED, legacyImported)
+            assertTrue("Could not restore the original puzzle preferences", editor.commit())
+        } finally {
+            appearanceStore.save(initialAppearance)
+        }
     }
 
     @Test fun everyDifficultyCanCreateAPuzzleInTheInstalledApp() {
@@ -140,7 +157,7 @@ class NativeGameTest {
 
     @Test fun hintShowsCandidateEliminationsWithAReadOnlyBoardPreview() {
         installFixture()
-        ActivityScenario.launch(SudokuActivity::class.java).use {
+        ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
             onView(withText("Continue Puzzle")).perform(click())
             onView(withText("Hint")).perform(scrollTo(), click())
             waitForCandidateHint()
@@ -150,7 +167,10 @@ class NativeGameTest {
             onView(allOf(withText("Locked candidates"), isAssignableFrom(AppCompatButton::class.java)))
                 .perform(scrollTo(), click())
             onView(withText("Worked example")).check(matches(isDisplayed()))
+            scenario.recreate()
+            onView(withText("Worked example")).check(matches(isDisplayed()))
             pressBack()
+            waitForCandidateHint()
             onView(withText("Show first cell")).check(matches(isDisplayed()))
             onView(withText("Hide board preview")).perform(scrollTo()).check(matches(isDisplayed()))
             onView(withText("Show first cell")).perform(click())
@@ -849,6 +869,66 @@ class NativeGameTest {
         }
     }
 
+    @Test fun zoomClearsKeyboardFocusAndBlocksClickForAClippedCell() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Continue Puzzle")).perform(click())
+            val board = onView(isAssignableFrom(BoardView::class.java))
+            board.perform(scrollTo()).check { view, error ->
+                if (error != null) throw error
+                view.isFocusableInTouchMode = true
+                assertTrue(view.requestFocus(View.FOCUS_FORWARD))
+                val provider = checkNotNull(view.accessibilityNodeProvider)
+                assertTrue(provider.createAccessibilityNodeInfo(0)?.isFocused == true)
+            }
+            board.perform(pinch(out = true)).check { view, error ->
+                if (error != null) throw error
+                val provider = checkNotNull(view.accessibilityNodeProvider)
+                assertFalse(provider.createAccessibilityNodeInfo(0)?.isFocused == true)
+                assertFalse(provider.performAction(0, AccessibilityNodeInfo.ACTION_CLICK, null))
+                view.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+                assertFalse(provider.createAccessibilityNodeInfo(0)?.isSelected == true)
+            }
+        }
+    }
+
+    @Test fun selectingEitherDigitKeepsTheClueAndEntryColorsDistinct() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val values = checkNotNull(Sudoku.decode(Guide.NAKED_BOARD))
+                val solution = checkNotNull(Sudoku.solve(values))
+                val game = Game(Puzzle(Difficulty.EASY, values, solution))
+                val entered = values.indexOf(0)
+                val digit = solution[entered]
+                val clue = values.indexOf(digit)
+                game.select(entered)
+                assertTrue(game.enter(digit))
+
+                val cellSide = 40
+                val side = cellSide * Sudoku.SIZE
+                val bitmap = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+                fun cellContainsColor(cell: Int, color: Int): Boolean {
+                    val x = (cell % Sudoku.SIZE) * cellSide + 6
+                    val y = (cell / Sudoku.SIZE) * cellSide + 6
+                    return (x until x + 28).any { px -> (y until y + 28).any { py -> bitmap.getPixel(px, py) == color } }
+                }
+                for (theme in GameTheme.entries) for (dark in listOf(false, true)) {
+                    val palette = theme.palette(dark)
+                    val board = BoardView(activity, palette) {}
+                    board.layout(0, 0, side, side)
+                    for (selected in listOf(clue, entered)) {
+                        game.select(selected)
+                        board.render(game)
+                        board.draw(Canvas(bitmap))
+                        assertTrue(cellContainsColor(clue, palette.givenDigit))
+                        assertTrue(cellContainsColor(entered, palette.enteredDigit))
+                    }
+                }
+            }
+        }
+    }
+
     @Test fun howToPlayOpensAWorkedLessonFromTheGameMenu() {
         installFixture()
         ActivityScenario.launch(SudokuActivity::class.java).use { scenario ->
@@ -1005,5 +1085,9 @@ class NativeGameTest {
             inject(MotionEvent.ACTION_UP, end, 1)
             uiController.loopMainThreadUntilIdle()
         }
+    }
+
+    private companion object {
+        const val LEGACY_IMPORTED = "legacy_imported"
     }
 }

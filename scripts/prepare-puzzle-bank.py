@@ -194,10 +194,13 @@ def rate_expansion(jar, tier, minimum, maximum, count, candidates):
 
 
 def write_rows(path, rows):
-    with path.open("w", encoding="ascii", newline="\n") as stream:
-        stream.write("# level\ttemplate ID\tSE rating in tenths\tgivens\tsolution\n")
-        for tier, template_id, row in rows:
-            stream.write(f"{tier}\t{template_id}\t{row.score}\t{row.givens}\t{row.solution}\n")
+    with TemporaryDirectory(dir=path.parent, prefix=".tsv-") as directory:
+        staged = Path(directory) / path.name
+        with staged.open("w", encoding="ascii", newline="\n") as stream:
+            stream.write("# level\ttemplate ID\tSE rating in tenths\tgivens\tsolution\n")
+            for tier, template_id, row in rows:
+                stream.write(f"{tier}\t{template_id}\t{row.score}\t{row.givens}\t{row.solution}\n")
+        staged.replace(path)
 
 
 def expansion_bracket(jar, tier, minimum, maximum, count, candidates, checkpoints):
@@ -215,10 +218,7 @@ def expansion_bracket(jar, tier, minimum, maximum, count, candidates, checkpoint
                 return cached
     records = list(rate_expansion(jar, tier, minimum, maximum, count, candidates))
     if cache:
-        with TemporaryDirectory(dir=cache.parent, prefix=".checkpoint-") as directory:
-            staged = Path(directory) / cache.name
-            write_rows(staged, records)
-            staged.replace(cache)
+        write_rows(cache, records)
     return records
 
 

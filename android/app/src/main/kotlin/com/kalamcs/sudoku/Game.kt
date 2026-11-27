@@ -3,7 +3,7 @@
 
 package com.kalamcs.sudoku
 
-internal data class PrunedNotes(val cell: Int, val peers: List<Int>)
+internal data class PrunedNotes(val cell: Int, val peers: List<Int>, val entryNotes: Int = 0)
 
 internal data class BoardSnapshot(val values: IntArray, val notes: IntArray, val prunedNotes: PrunedNotes?)
 internal data class EditHistory(val undo: List<BoardSnapshot> = emptyList(), val redo: List<BoardSnapshot> = emptyList())
@@ -72,8 +72,14 @@ internal class Game(
         highlightedDigit = 0
     }
 
-    fun canEnter(digit: Int) = !paused && !finished &&
-        (puzzle.givens[selected] != 0 || counts[digit] < Sudoku.SIZE || (!notesMode && values[selected] == digit))
+    fun canEnter(digit: Int): Boolean {
+        if (paused || finished) return false
+        if (puzzle.givens[selected] != 0) return true
+        val hasRoom = counts[digit] < Sudoku.SIZE
+        return if (notesMode) {
+            values[selected] == 0 && (hasRoom || notes[selected] and Sudoku.bit(digit) != 0)
+        } else hasRoom || values[selected] == digit
+    }
 
     fun changeEntryOrder(order: EntryOrder): Boolean {
         if (entryOrder == order) return false
@@ -84,7 +90,7 @@ internal class Game(
     }
 
     fun canTapDigit(digit: Int) = if (entryOrder == EntryOrder.CELL_FIRST) canEnter(digit)
-        else !paused && !finished && (digit == pickedDigit || counts[digit] < 9)
+        else !paused && !finished && (digit == pickedDigit || notesMode || counts[digit] < Sudoku.SIZE)
 
     fun tapDigit(digit: Int): Boolean {
         if (entryOrder == EntryOrder.CELL_FIRST) return enter(digit)
@@ -114,7 +120,6 @@ internal class Game(
             highlightedDigit = digit
             return false
         }
-        if (notesMode && values[cell] != 0) return false
         if (notesMode) {
             edit()
             notes[cell] = notes[cell] xor Sudoku.bit(digit)
@@ -145,20 +150,21 @@ internal class Game(
     }
 
     private fun replaceValue(cell: Int, value: Int) {
-        val previousPruning = prunedNotes
+        val previousPruning = prunedNotes?.takeIf { it.cell == cell }
+        val entryNotes = previousPruning?.entryNotes ?: if (values[cell] == 0) notes[cell] else 0
         edit()
-        if (previousPruning?.cell == cell) {
+        if (previousPruning != null) {
             val previousDigit = Sudoku.bit(values[cell])
             for (peer in previousPruning.peers) notes[peer] = notes[peer] or previousDigit
         }
         values[cell] = value
-        notes[cell] = 0
+        notes[cell] = if (value == 0) previousPruning?.entryNotes ?: 0 else 0
         if (value == 0) return
 
         val digit = Sudoku.bit(value)
         val affected = Sudoku.peers[cell].filter { notes[it] and digit != 0 }
         for (peer in affected) notes[peer] = notes[peer] and digit.inv()
-        if (affected.isNotEmpty()) prunedNotes = PrunedNotes(cell, affected)
+        if (affected.isNotEmpty() || entryNotes != 0) prunedNotes = PrunedNotes(cell, affected, entryNotes)
     }
 
     fun editHistory() = EditHistory(undo.toList(), redo.toList())
