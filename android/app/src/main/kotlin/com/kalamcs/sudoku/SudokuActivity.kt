@@ -92,6 +92,7 @@ class SudokuActivity : AppCompatActivity() {
         val values: IntArray,
         val hint: Hint,
         val crossedOff: IntArray,
+        val notes: IntArray,
     )
 
     private data class HintDialogState(val hint: Hint, val values: IntArray, val scrollY: Int, val previewOpen: Boolean)
@@ -961,17 +962,19 @@ class SudokuActivity : AppCompatActivity() {
         }
         val crossedOff = active.crossedOffNotes()
         val previous = hintProgress
-        if (previous != null && previous.values.contentEquals(active.values) && previous.crossedOff.contentEquals(crossedOff)) {
+        if (previous != null && previous.values.contentEquals(active.values) &&
+            previous.crossedOff.contentEquals(crossedOff) && previous.notes.contentEquals(active.notes)) {
             showHint(previous.hint, previous.values)
             return
         }
         hintPending = true
         val request = ++hintRequest
         val values = active.values.copyOf()
+        val notes = active.notes.copyOf()
         updateGame()
         hintTask = hintWorker.submit {
             val result = try {
-                Result.success(Sudoku.hint(values, crossedOff = crossedOff))
+                Result.success(Sudoku.hint(values, crossedOff = crossedOff, notes = notes))
             } catch (_: CancellationException) {
                 return@submit
             } catch (timeout: HintTimedOut) {
@@ -987,7 +990,7 @@ class SudokuActivity : AppCompatActivity() {
                 when {
                     result.isFailure -> message("Hint", "Finding an explanation took too long. You can try again.")
                     hint != null -> {
-                        hintProgress = HintProgress(values, hint, crossedOff)
+                        hintProgress = HintProgress(values, hint, crossedOff, notes)
                         showHint(hint, values)
                     }
                     else -> message("Hint", "There is no forced move to show for this board.")
