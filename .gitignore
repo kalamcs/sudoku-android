@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# Android build output
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/local.properties
+android/captures/
+android/app/google-services.json
+firebase-debug.log
+firestore-debug.log
+*.iml
+*.hprof
+
+# signing material — never commit these
+*.keystore
+*.jks
+keystore.properties
+
+# tooling / OS
+.DS_Store

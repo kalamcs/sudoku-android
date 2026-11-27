@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (c) 2026 Kalam Shah -->
+<!-- SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 -->
+
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="39dp"
+    android:height="26dp"
+    android:viewportWidth="48"
+    android:viewportHeight="32">
+    <path
+        android:fillColor="#0A9D85"
+        android:pathData="M5.1,30.2L13.6,22.2Q14.3,21.5 15,22.1L17.7,24.2L27,13.2Q27.7,12.4 28.4,13.3L43,29.7Q43.8,31 42.4,31H5.7Q4.6,31 5.1,30.2Z" />
+    <path
+        android:fillColor="#FFFDF8"
+        android:pathData="M27.7,15L31.6,19.5L29.6,19L29.3,21.2L27,18.9L25.5,19.9L24.9,19.4L23.8,19.7Z" />
+</vector>
