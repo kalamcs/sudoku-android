@@ -200,6 +200,55 @@ class SudokuTest {
         assertEquals(listOf(CandidateRemoval(40, 2)), hint.removals)
     }
 
+    @Test fun completeNotesTurnTheReportedMultiStepPlacementIntoOneActionAtATime() {
+        val puzzle = board("002051738308007006070083009900700800084130690026800000207304081040018200800070000")
+        val solution = checkNotNull(Sudoku.uniqueSolution(puzzle))
+        val original = checkNotNull(Sudoku.hint(puzzle))
+        assertTrue(original.removals.isEmpty())
+        assertTrue(original.steps.size > 1)
+        var game = Game(Puzzle(Difficulty.MEDIUM, puzzle, solution))
+        assertTrue(game.autoNotes())
+        game.notesMode = true
+        // Recreate the candidates already crossed off in the screenshot.
+        val previouslyCrossedOff = listOf(
+            CandidateRemoval(34, 2), CandidateRemoval(35, 3), CandidateRemoval(55, 9),
+            CandidateRemoval(66, 6), CandidateRemoval(75, 6),
+        )
+        for ((cell, digit) in previouslyCrossedOff) {
+            assertTrue(game.notes[cell] and Sudoku.bit(digit) != 0)
+            game.select(cell)
+            assertTrue(game.enter(digit))
+        }
+
+        repeat(Sudoku.COUNT * Sudoku.SIZE) { index ->
+            val hint = checkNotNull(Sudoku.hint(game.values, crossedOff = game.crossedOffNotes(), notes = game.notes))
+            assertEquals(1, hint.steps.size)
+            if (index == 0) assertEquals(listOf(CandidateRemoval(73, 9)), hint.removals)
+            if (hint.removals.isEmpty()) {
+                assertTrue(index > 0)
+                assertEquals(solution[hint.cell], hint.digit)
+                return
+            }
+            for ((cell, digit) in hint.removals) {
+                assertTrue(game.notes[cell] and Sudoku.bit(digit) != 0)
+                assertTrue(solution[cell] != digit)
+                game.select(cell)
+                assertTrue(game.enter(digit))
+            }
+            if (index == 0) game = checkNotNull(SaveFormat.game(SaveFormat.encode(game, 0L)))
+        }
+        throw AssertionError("Did not reach the placement after following candidate hints")
+    }
+
+    @Test fun absentAndPartialNotesKeepTheDetailedHint() {
+        val puzzle = board("002051738308007006070083009900700800084130690026800000207304081040018200800070000")
+        val original = Sudoku.hint(puzzle)
+        assertNotNull(original)
+        val sparse = IntArray(Sudoku.COUNT).apply { this[0] = Sudoku.bit(4) }
+        assertEquals(original, Sudoku.hint(puzzle, notes = IntArray(Sudoku.COUNT)))
+        assertEquals(original, Sudoku.hint(puzzle, notes = sparse))
+    }
+
     @Test fun theReportedEasyPuzzleExplainsTheSingleInOneSentence() {
         val puzzle = board("068290000000700001170038609810027054702003196056904000001389007604000900900540208")
         val hint = checkNotNull(Sudoku.hint(puzzle))
@@ -207,6 +256,8 @@ class SudokuTest {
         assertEquals(5, hint.digit)
         assertEquals(Technique.HIDDEN_SINGLE, hint.technique)
         assertEquals(listOf("In row 3, only column 3 can take 5."), hint.steps.map(HintStep::text))
+        val notes = IntArray(Sudoku.COUNT) { if (puzzle[it] == 0) Sudoku.candidates(puzzle, it) else 0 }
+        assertEquals(hint, Sudoku.hint(puzzle, notes = notes))
     }
 
     @Test fun expertAndHiddenPairHintsShowOnlyValidCandidatesToCrossOff() {

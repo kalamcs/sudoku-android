@@ -403,34 +403,38 @@ internal object Sudoku {
         return null
     }
 
-    private fun isPending(candidate: Int, crossedOff: IntArray) = crossedOff[candidate / 10] and bit(candidate % 10) == 0
+    private fun hasCandidate(candidate: Int, masks: IntArray) = masks[candidate / 10] and bit(candidate % 10) != 0
 
-    private fun analyze(board: IntArray, budget: HintBudget? = null, crossedOff: IntArray? = null): Analysis {
-        val candidates = candidateBoard(board)
+    private fun analyze(
+        board: IntArray,
+        candidates: IntArray,
+        budget: HintBudget,
+        crossedOff: IntArray,
+        completeNotes: IntArray?,
+    ): Analysis {
         val eliminations = mutableListOf<Elimination>()
         try {
             while (indexes.none { board[it] == 0 && candidates[it] == 0 }) {
-                budget?.check()
+                budget.check()
                 val move = single(candidates)
                 if (move != null) return Analysis(move, candidates, eliminations)
-                val pattern = locked(candidates) ?: pair(candidates) ?: if (crossedOff != null) {
-                    hiddenSubset(candidates, 2) ?: nakedSubset(candidates, 3) ?: hiddenSubset(candidates, 3)
-                        ?: nakedSubset(candidates, 4) ?: hiddenSubset(candidates, 4)
-                        ?: fish(candidates, 2, budget) ?: xyWing(candidates) ?: fish(candidates, 3, budget)
-                } else null
-                if (pattern == null) break
-                val step = if (crossedOff != null) {
-                    pattern.copy(focusNotes = pattern.focus.associateWith { candidates[it] })
-                } else pattern
+                val pattern = locked(candidates) ?: pair(candidates)
+                    ?: hiddenSubset(candidates, 2) ?: nakedSubset(candidates, 3) ?: hiddenSubset(candidates, 3)
+                    ?: nakedSubset(candidates, 4) ?: hiddenSubset(candidates, 4)
+                    ?: fish(candidates, 2, budget) ?: xyWing(candidates) ?: fish(candidates, 3, budget) ?: break
+                val step = pattern.copy(focusNotes = pattern.focus.associateWith { candidates[it] })
                 for (cell in step.cells) {
                     step.removed += digitsIn(candidates[cell] and step.mask).map { cell * 10 + it }
                     candidates[cell] = candidates[cell] and step.mask.inv()
                 }
                 eliminations += step
+                if (completeNotes != null && step.removed.any { hasCandidate(it, completeNotes) }) break
             }
         } catch (timeout: HintTimedOut) {
             // A proven elimination that still applies is useful after a placement search times out.
-            if (crossedOff == null || eliminations.none { step -> step.removed.any { isPending(it, crossedOff) } }) throw timeout
+            if (completeNotes != null || eliminations.none { step -> step.removed.any { !hasCandidate(it, crossedOff) } }) {
+                throw timeout
+            }
         }
         return Analysis(null, candidates, eliminations)
     }
@@ -581,19 +585,33 @@ internal object Sudoku {
             digits.map { branch(work, cell, it) }
     }
 
-    fun hint(board: IntArray, budget: HintBudget = HintBudget(), crossedOff: IntArray = IntArray(COUNT)): Hint? {
+    fun hint(
+        board: IntArray,
+        budget: HintBudget = HintBudget(),
+        crossedOff: IntArray = IntArray(COUNT),
+        notes: IntArray? = null,
+    ): Hint? {
         budget.check()
         if (board.size != COUNT || board.any { it !in 0..SIZE } ||
             indexes.any { cell -> board[cell] != 0 && peers[cell].any { board[it] == board[cell] } }) return null
-        val analysis = analyze(board, budget, crossedOff)
+        val candidates = candidateBoard(board)
+        // Notes choose which proven step to show. Deductions always start from the placed digits.
+        val completeNotes = notes?.takeIf { masks ->
+            masks.size == COUNT &&
+                indexes.any { masks[it] and candidates[it] != 0 } &&
+                indexes.all { candidates[it] and (masks[it] or crossedOff[it]).inv() == 0 }
+        }
+        val analysis = analyze(board, candidates, budget, crossedOff, completeNotes)
         analysis.move?.let { move ->
-            if (analysis.eliminations.isEmpty()) {
-                val unit = cellUnits[move.cell].firstOrNull { places(it, move.digit, analysis.candidates).size == 1 }
-                val direct = move.copy(unit = unit)
-                val reason = if (unit == null) {
-                    "The row, column, and box rule out every digit except ${move.digit}."
-                } else {
-                    "In ${unit.name}, only ${placeIn(unit, move.cell)} can take ${move.digit}."
+            if (analysis.eliminations.isEmpty() || completeNotes != null) {
+                val direct = if (analysis.eliminations.isEmpty()) {
+                    move.copy(unit = cellUnits[move.cell].firstOrNull { places(it, move.digit, analysis.candidates).size == 1 })
+                } else move
+                val unit = direct.unit
+                val reason = when {
+                    unit != null -> "In ${unit.name}, only ${placeIn(unit, move.cell)} can take ${move.digit}."
+                    analysis.eliminations.isNotEmpty() -> "Only ${move.digit} remains in this cell after the candidate eliminations."
+                    else -> "The row, column, and box rule out every digit except ${move.digit}."
                 }
                 return Hint(direct.cell, direct.digit, direct.technique, listOf(HintStep(reason)))
             }
@@ -603,11 +621,14 @@ internal object Sudoku {
             return Hint(move.cell, move.digit, move.technique, steps + relevant(analysis.eliminations, needs) + HintStep(conclusion))
         }
         for ((index, step) in analysis.eliminations.withIndex()) {
-            val removals = step.removed.filter { isPending(it, crossedOff) }.map { CandidateRemoval(it / 10, it % 10) }
+            val removals = step.removed.filter {
+                if (completeNotes != null) hasCandidate(it, completeNotes) else !hasCandidate(it, crossedOff)
+            }.map { CandidateRemoval(it / 10, it % 10) }
             if (removals.isEmpty()) continue
             val first = removals.first()
             val technique = checkNotNull(step.reason.technique)
-            val reasoning = relevant(analysis.eliminations.take(index), step.needs.toMutableSet()) + step.reason
+            val reasoning = if (completeNotes != null) listOf(step.reason)
+                else relevant(analysis.eliminations.take(index), step.needs.toMutableSet()) + step.reason
             return Hint(first.cell, first.digit, technique, reasoning, removals, step.focusNotes,
                 step.reason.heading ?: technique.title)
         }
