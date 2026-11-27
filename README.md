@@ -150,15 +150,52 @@ On the project's WSL2 setup:
 export JAVA_HOME="$HOME/.local/opt/jdk-21-current"
 export ANDROID_HOME="$HOME/Android/Sdk"
 export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
-npm test
-npm run apk
+./android/gradlew -p android :app:testDebugUnitTest
+./android/gradlew -p android :app:assembleDebug
 ```
 
 The debug APK is at `android/app/build/outputs/apk/debug/app-debug.apk`.
-`npm run aab` builds the release app bundle. Both scripts call Gradle directly.
-Install the Node dependencies to regenerate the launcher artwork with `npm run icons`.
-`npm test` runs JVM unit tests. To run the Android UI tests, start an emulator
-or connect a test device and run `cd android && ./gradlew connectedDebugAndroidTest`.
+To run Android UI tests, start an emulator or connect a test device and run
+`./android/gradlew -p android :app:connectedDebugAndroidTest`.
+Android builds and tests use Gradle directly and require no Node dependencies.
+
+To regenerate the launcher artwork, install Python 3, `librsvg2-bin`, and
+`fonts-dejavu-core` on WSL. Run `python3 scripts/generate-icons.py` from the
+project root. The script uses the source SVGs in `assets/` to regenerate the
+legacy square, round, and adaptive foreground PNGs at each Android density,
+plus `assets/icon.png`. Pass `--output-root <directory>` to render a preview
+without changing the checked-in PNGs.
+
+Release builds enable R8 optimization and resource shrinking. Build and measure
+the unsigned release APK from the project root:
+
+```bash
+./android/gradlew -p android :app:assembleRelease
+stat -c '%s bytes' android/app/build/outputs/apk/release/app-release-unsigned.apk
+```
+
+For an emulator smoke test, sign a copy with the local Android debug key. Build
+the debug APK first if that key does not exist yet. Use a test emulator where
+Sudoku is absent or already signed with that debug key. Use the serial shown by
+`adb devices -l` in place of `emulator-5554` if it differs:
+
+```bash
+smoke_dir=$(mktemp -d)
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+  --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey \
+  --ks-pass pass:android --key-pass pass:android \
+  --out "$smoke_dir/app-release-smoke.apk" \
+  android/app/build/outputs/apk/release/app-release-unsigned.apk
+adb devices -l
+adb -s emulator-5554 install -r "$smoke_dir/app-release-smoke.apk"
+```
+
+Start a puzzle, enter a digit, pause, and reopen the app. Continue the puzzle and
+check that the entry and undo history survived. Open **Send Feedback** and check
+the form validation. Test connectivity handling with Wi-Fi and mobile data off
+on the emulator. Before sending a valid draft, confirm that
+`adb -s emulator-5554 shell dumpsys connectivity` reports no active default
+network. Use the local Firestore rules suite for submission checks.
 
 ## Set up in-app feedback
 
@@ -176,9 +213,9 @@ or connect a test device and run `cd android && ./gradlew connectedDebugAndroidT
    `com.kalamcs.sudoku`. Download `google-services.json` into
    `android/app/google-services.json`. The repository ignores that file so each
    build can use the project its owner chooses.
-5. Run `npm run apk`. Install that APK and submit a test message from
-   **Menu → Send Feedback**. Check the **Data** tab in Firestore for the
-   `feedback` collection.
+5. Run `./android/gradlew -p android :app:assembleDebug`. Install that APK and
+   submit a test message from **Menu → Send Feedback**. Check the **Data** tab
+   in Firestore for the `feedback` collection.
 
 For a file downloaded to Windows, copy it from the project root in WSL:
 
@@ -195,7 +232,9 @@ The [Firestore Standard free quota](https://firebase.google.com/docs/firestore/q
 includes 20,000 writes and 50,000 reads per day and 1 GiB of storage. A feedback
 submission uses one write.
 
-To test the rules locally with the Firebase CLI and Node.js 22:
+To test the rules locally, use Node.js 22 and a Firebase CLI installed outside
+the checkout. The test uses Node's built-in modules and a local Firebase demo
+project. It requires no repository `node_modules`:
 
 ```bash
 firebase emulators:exec --only auth,firestore --project demo-sudoku-feedback \
@@ -227,7 +266,7 @@ stats from the old local storage into Android SharedPreferences.
 | `android/app/src/main/kotlin/com/kalamcs/sudoku/` | Native activity, board, illustrated guide, puzzle engine, game state, and storage |
 | `android/app/src/test/kotlin/com/kalamcs/sudoku/` | Puzzle, hint, saved-data, and board viewport tests |
 | `firebase.json`, `firestore.rules`, `tests/firestore-rules.test.mjs` | Feedback configuration and Firestore rules tests |
-| `assets/` and `scripts/generate-icons.mjs` | Launcher icon source and regeneration via `npm run icons` |
+| `assets/` and `scripts/generate-icons.py` | Launcher icon source and regeneration with Python and librsvg |
 
 The Android UI uses native widgets throughout and draws the game and guide
 boards with Canvas. An offscreen WebView imports local storage from a previous
@@ -239,7 +278,7 @@ web-based installation.
    in `android/app/build.gradle` with credentials from an ignored local file.
 2. Keep the existing application ID `com.kalamcs.sudoku` and increment the
    version code for each release.
-3. Run `npm run aab` and upload
+3. Run `./android/gradlew -p android :app:bundleRelease` and upload
    `android/app/build/outputs/bundle/release/app-release.aab` to Play Console.
 
 Back up the upload key and its credentials. Keep keystores, signing credentials,

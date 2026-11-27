@@ -6,14 +6,11 @@ package com.kalamcs.sudoku
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Canvas
-import android.graphics.ColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PixelFormat
 import android.graphics.Shader
 import android.graphics.Typeface
-import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewGroup
 import kotlin.math.roundToInt
@@ -160,27 +157,4 @@ internal class SavedPuzzlePreview(context: Context, private val palette: GamePal
         canvas.drawRoundRect(inset, inset, side - inset, side - inset, 9 * density, 9 * density, paint)
         paint.style = Paint.Style.FILL
     }
-}
-
-internal class DifficultyBars(difficulty: Difficulty, palette: GamePalette) : Drawable() {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = palette.difficultyAccent(difficulty)
-    }
-
-    override fun draw(canvas: Canvas) {
-        val step = bounds.width() / 4f
-        val gap = step * .25f
-        val radius = step * .19f
-        val bottom = bounds.bottom.toFloat()
-        for (index in 0..3) {
-            val left = bounds.left + index * step + gap / 2
-            val top = bottom - bounds.height() * (.36f + index * .21f)
-            canvas.drawRoundRect(left, top, left + step - gap, bottom, radius, radius, paint)
-        }
-    }
-
-    override fun setAlpha(alpha: Int) { paint.alpha = alpha }
-    override fun setColorFilter(colorFilter: ColorFilter?) { paint.colorFilter = colorFilter }
-    @Deprecated("Drawable opacity is no longer used")
-    override fun getOpacity() = PixelFormat.TRANSLUCENT
 }
