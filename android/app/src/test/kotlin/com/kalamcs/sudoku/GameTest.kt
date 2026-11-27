@@ -46,6 +46,27 @@ class GameTest {
         assertEquals(starting, game.remaining(5))
     }
 
+    @Test fun cellFirstCanClearACompletedDigitWithoutAllowingAnExtraPlacement() {
+        val game = game()
+        val cells = game.values.indices.filter { game.values[it] == 0 && game.puzzle.solution[it] == 1 }
+        for (cell in cells) {
+            game.select(cell)
+            assertTrue(game.tapDigit(1))
+        }
+        assertEquals(0, game.remaining(1))
+
+        game.select(game.values.indexOf(0))
+        assertFalse(game.canTapDigit(1))
+        game.select(cells.last())
+        game.notesMode = true
+        assertFalse(game.canTapDigit(1))
+        game.notesMode = false
+        assertTrue(game.canTapDigit(1))
+        assertTrue(game.tapDigit(1))
+        assertEquals(0, game.values[cells.last()])
+        assertEquals(1, game.remaining(1))
+    }
+
     @Test fun changingEntryOrderAfterAWinCarriesIntoReplay() {
         val game = game()
         game.finish(0)
@@ -267,6 +288,33 @@ class GameTest {
         restored.notesMode = true
         assertTrue(restored.enter(5))
         assertEquals(0, restored.crossedOffNotes()[40])
+    }
+
+    @Test fun autoNotesCleanupDoesNotCrossOffACandidateThatLaterBecomesLegal() {
+        val game = game()
+        val digit = Sudoku.bit(4)
+        game.select(2)
+        assertTrue(game.enter(4))
+        game.select(5)
+        game.notesMode = true
+        assertTrue(game.enter(4))
+        assertTrue(game.autoNotes())
+        assertEquals(0, game.notes[5] and digit)
+        assertEquals(0, game.crossedOffNotes()[5] and digit)
+        game.select(2)
+        assertTrue(game.erase())
+        assertEquals(digit, Sudoku.candidates(game.values, 5) and digit)
+
+        val restored = checkNotNull(SaveFormat.game(SaveFormat.encode(game, 0)))
+        assertEquals(0, restored.crossedOffNotes()[5] and digit)
+        assertTrue(restored.undo())
+        assertTrue(restored.undo())
+        assertEquals(digit, restored.notes[5] and digit)
+        assertTrue(restored.redo())
+        assertEquals(0, restored.notes[5] and digit)
+        assertTrue(restored.redo())
+        assertEquals(digit, Sudoku.candidates(restored.values, 5) and digit)
+        assertEquals(0, restored.crossedOffNotes()[5] and digit)
     }
 
     @Test fun selectedDigitsHighlightOnlyMatchingPencilMarks() {

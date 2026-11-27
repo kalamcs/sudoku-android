@@ -134,10 +134,13 @@ internal object SaveFormat {
     }.toString()
 }
 
+internal enum class LegacyImportResult { COMPLETE, RETRY_NEEDED }
+
 internal class GameStore(private val context: Context) {
     private val preferences = context.getSharedPreferences("sudoku", Context.MODE_PRIVATE)
 
     fun game() = SaveFormat.game(preferences.getString(SaveFormat.GAME, null))
+    fun needsLegacyData() = !preferences.contains(SaveFormat.GAME) || !preferences.contains(SaveFormat.STATS)
     fun records() = SaveFormat.records(preferences.getString(SaveFormat.STATS, null))
     fun save(game: Game, now: Long) = preferences.edit().putString(SaveFormat.GAME, SaveFormat.encode(game, now)).apply()
     // Keep the completed board and its win record in one preferences update.
@@ -146,18 +149,22 @@ internal class GameStore(private val context: Context) {
             .putString(SaveFormat.STATS, SaveFormat.encode(records)).apply()
     }
 
-    fun importLegacy(done: () -> Unit) {
+    fun importLegacy(done: (LegacyImportResult) -> Unit) {
         val key = "legacy_imported"
         if (preferences.getBoolean(key, false) || !File(context.dataDir, "app_webview").isDirectory) {
             preferences.edit().putBoolean(key, true).apply()
-            done()
+            done(LegacyImportResult.COMPLETE)
             return
         }
 
         // Match Capacitor's previous origin to read its localStorage. The view
         // loads a local document, never makes a request, and never becomes UI.
-        val web = runCatching { WebView(context) }.getOrElse { done(); return }
+        val web = runCatching { WebView(context) }.getOrElse {
+            done(LegacyImportResult.RETRY_NEEDED)
+            return
+        }
         val handler = Handler(Looper.getMainLooper())
+        val saveKeys = listOf(SaveFormat.GAME, SaveFormat.STATS)
         var ended = false
         lateinit var timeout: Runnable
         fun finish(data: JSONObject?) {
@@ -166,13 +173,13 @@ internal class GameStore(private val context: Context) {
             handler.removeCallbacks(timeout)
             if (data != null) {
                 val editor = preferences.edit()
-                for (name in listOf(SaveFormat.GAME, SaveFormat.STATS)) {
+                for (name in saveKeys) {
                     if (!data.isNull(name) && !preferences.contains(name)) editor.putString(name, data.getString(name))
                 }
                 editor.putBoolean(key, true).apply()
             }
             web.destroy()
-            done()
+            done(if (data == null) LegacyImportResult.RETRY_NEEDED else LegacyImportResult.COMPLETE)
         }
         timeout = Runnable { finish(null) }
         handler.postDelayed(timeout, 20_000)
@@ -189,6 +196,9 @@ internal class GameStore(private val context: Context) {
                         "sudoku_stats_v1:localStorage.getItem('sudoku_stats_v1')})"
                 ) { result ->
                     val data = runCatching { JSONObject(JSONTokener(result).nextValue() as String) }.getOrNull()
+                        ?.takeIf { payload ->
+                            saveKeys.all { name -> payload.has(name) && (payload.isNull(name) || payload.opt(name) is String) }
+                        }
                     finish(data)
                 }
             }

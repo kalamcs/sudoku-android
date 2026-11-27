@@ -10,6 +10,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -28,11 +29,11 @@ internal class BoardViewport {
     var top = 0f
         private set
 
-    fun zoom(factor: Float, focusX: Float, focusY: Float, size: Float) {
+    fun pinch(factor: Float, previousX: Float, previousY: Float, x: Float, y: Float, size: Float) {
         val next = (scale * factor).coerceIn(1f, 3f)
         val ratio = next / scale
-        left = focusX - (focusX - left) * ratio
-        top = focusY - (focusY - top) * ratio
+        left = x - (previousX - left) * ratio
+        top = y - (previousY - top) * ratio
         scale = next
         constrain(size)
     }
@@ -145,6 +146,10 @@ internal class BoardView(
             onCell.invoke(id)
             return true
         }
+
+        override fun onVirtualViewKeyboardFocusChanged(virtualViewId: Int, hasFocus: Boolean) {
+            invalidate()
+        }
     } else null
 
     init {
@@ -194,6 +199,14 @@ internal class BoardView(
 
     override fun dispatchHoverEvent(event: MotionEvent): Boolean =
         accessibility?.dispatchHoverEvent(event) == true || super.dispatchHoverEvent(event)
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        (!hidden && accessibility?.dispatchKeyEvent(event) == true) || super.dispatchKeyEvent(event)
+
+    override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: Rect?) {
+        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
+        accessibility?.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
+    }
 
     override fun performClick(): Boolean {
         super.performClick()
@@ -275,8 +288,7 @@ internal class BoardView(
         val y = (y1 + y2) / 2
         val span = hypot(x2 - x1, y2 - y1).coerceAtLeast(1f)
         if (!rebase && scaleSpan > 0) {
-            viewport.pan(x - scaleFocusX, y - scaleFocusY, size)
-            viewport.zoom(span / scaleSpan, x, y, size)
+            viewport.pinch(span / scaleSpan, scaleFocusX, scaleFocusY, x, y, size)
             viewportChanged()
         }
         scaleFocusX = x
@@ -318,6 +330,7 @@ internal class BoardView(
         val step = size / 9
         val selection = active?.selected ?: -1
         val match = active?.matchingDigit ?: 0
+        val keyboardFocus = accessibility?.keyboardFocusedVirtualViewId
         for (cell in values.indices) {
             val x = (cell % 9) * step
             val y = (cell / 9) * step
@@ -379,6 +392,14 @@ internal class BoardView(
                 val inset = step * .045f
                 val radius = if (selected) step * .12f else 0f
                 canvas.drawRoundRect(x + inset, y + inset, x + step - inset, y + step - inset, radius, radius, paint)
+                paint.style = Paint.Style.FILL
+            }
+            if (cell == keyboardFocus) {
+                paint.color = palette.ink
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = step * .04f
+                val inset = step * .12f
+                canvas.drawRect(x + inset, y + inset, x + step - inset, y + step - inset, paint)
                 paint.style = Paint.Style.FILL
             }
         }

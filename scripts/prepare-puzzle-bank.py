@@ -13,6 +13,7 @@ from pathlib import Path
 import random
 import re
 import subprocess
+from tempfile import TemporaryDirectory
 
 from puzzle_equivalence import DistinctTemplates
 
@@ -159,6 +160,8 @@ def prepared_rows(path):
             if line.startswith("#"):
                 continue
             tier, template_id, score, givens, solution = line.rstrip("\n").split("\t")
+            if not re.fullmatch(r"[0-9]{81}", givens) or not re.fullmatch(r"[1-9]{81}", solution):
+                raise ValueError(f"Invalid prepared board in {path}")
             yield tier, template_id, RatedBoard(givens, int(score), solution)
 
 
@@ -203,13 +206,19 @@ def expansion_bracket(jar, tier, minimum, maximum, count, candidates, checkpoint
         digest = hashlib.sha256(repr((RATER_SHA256, CLASSIC_TECHNIQUES, tier, minimum,
                                       maximum, count, candidates)).encode("ascii")).hexdigest()
         cache = checkpoints / f"{tier}-{minimum}-{digest}.tsv"
-        if cache.exists():
+        try:
             cached = list(prepared_rows(cache))
+        except (FileNotFoundError, ValueError):
+            pass
+        else:
             if len(cached) == count * BOARDS_PER_TEMPLATE:
                 return cached
     records = list(rate_expansion(jar, tier, minimum, maximum, count, candidates))
     if cache:
-        write_rows(cache, records)
+        with TemporaryDirectory(dir=cache.parent, prefix=".checkpoint-") as directory:
+            staged = Path(directory) / cache.name
+            write_rows(staged, records)
+            staged.replace(cache)
     return records
 
 

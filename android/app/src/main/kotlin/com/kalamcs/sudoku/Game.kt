@@ -72,7 +72,8 @@ internal class Game(
         highlightedDigit = 0
     }
 
-    fun canEnter(digit: Int) = !paused && !finished && (puzzle.givens[selected] != 0 || counts[digit] < 9)
+    fun canEnter(digit: Int) = !paused && !finished &&
+        (puzzle.givens[selected] != 0 || counts[digit] < Sudoku.SIZE || (!notesMode && values[selected] == digit))
 
     fun changeEntryOrder(order: EntryOrder): Boolean {
         if (entryOrder == order) return false
@@ -169,9 +170,11 @@ internal class Game(
         fun applyEdit(nextValues: IntArray, nextNotes: IntArray) {
             val notesOnly = previous.values.contentEquals(nextValues)
             for (cell in nextValues.indices) {
-                val removed = if (notesOnly) previous.notes[cell] and nextNotes[cell].inv() else 0
                 crossedOff[cell] = if (nextValues[cell] == 0 && previous.values[cell] == 0) {
-                    (crossedOff[cell] or removed) and nextNotes[cell].inv()
+                    val removed = if (notesOnly) previous.notes[cell] and nextNotes[cell].inv() else 0
+                    // Auto Notes can only remove marks that are already illegal on this grid.
+                    val legalRemovals = if (removed != 0) removed and Sudoku.candidates(nextValues, cell) else 0
+                    (crossedOff[cell] or legalRemovals) and nextNotes[cell].inv()
                 } else 0
             }
         }

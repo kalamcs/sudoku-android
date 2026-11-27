@@ -75,10 +75,11 @@ def pack(source, output):
             raise ValueError(f"{template_id} has an invalid record length")
         levels[level].extend(record)
         counts[level] += 1
-    output.mkdir(parents=True, exist_ok=True)
     for level, catalog in levels.items():
         if not catalog:
             raise ValueError(f"No templates for {level}")
+    output.mkdir(parents=True, exist_ok=True)
+    for level, catalog in levels.items():
         (output / f"{level}.sudoku").write_bytes(catalog)
     print(f"Packed templates {dict(counts)}")
 

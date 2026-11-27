@@ -78,6 +78,7 @@ class SudokuActivity : AppCompatActivity() {
     private var dialogPausesClock = false
     private var generationInProgress = false
     private var restoring = true
+    private var legacyImportNeedsRetry = false
     private var foreground = false
     private var hintRequest = 0
     private var hintPending = false
@@ -150,12 +151,7 @@ class SudokuActivity : AppCompatActivity() {
         feedbackModel.delivery.observe(this) {
             if (screen == Screen.FEEDBACK) renderFeedback()
         }
-        renderHome()
-        store.importLegacy {
-            if (isDestroyed || isFinishing) return@importLegacy
-            game = store.game()
-            records = store.records()
-            restoring = false
+        restoreGame {
             guideOrigin = Screen.entries.firstOrNull { it.name == state?.getString("guideOrigin") } ?: Screen.HOME
             guideTab = GuideTab.entries.firstOrNull { it.name == state?.getString("guideTab") } ?: GuideTab.RULES
             guideReturnToIndex = state?.getBoolean("guideIndex", true) ?: true
@@ -179,6 +175,36 @@ class SudokuActivity : AppCompatActivity() {
                 else -> renderHome()
             }
         }
+    }
+
+    private fun restoreGame(renderRestoredScreen: () -> Unit) {
+        restoring = true
+        renderHome()
+        store.importLegacy { result ->
+            if (isDestroyed || isFinishing) return@importLegacy
+            legacyImportNeedsRetry = result == LegacyImportResult.RETRY_NEEDED && store.needsLegacyData()
+            game = store.game()
+            records = store.records()
+            restoring = false
+            when {
+                legacyImportNeedsRetry -> renderHome()
+                game?.awaitsCompletion() == true -> showGame()
+                else -> renderRestoredScreen()
+            }
+        }
+    }
+
+    private fun confirmPlayingWithoutLegacyImport(proceed: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle("Check for older Sudoku data?")
+            .setMessage("Sudoku couldn’t check for older progress or statistics. Playing now may replace that data.")
+            .setPositiveButton("Play anyway") { _, _ ->
+                legacyImportNeedsRetry = false
+                proceed()
+            }
+            .setNeutralButton("Retry") { _, _ -> restoreGame(::renderHome) }
+            .setNegativeButton("Cancel", null)
+            .showThemed()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -487,7 +513,11 @@ class SudokuActivity : AppCompatActivity() {
     }
 
     private fun askForNew(difficulty: Difficulty) {
-        if (generationInProgress) return
+        if (restoring || generationInProgress) return
+        if (legacyImportNeedsRetry) {
+            confirmPlayingWithoutLegacyImport { askForNew(difficulty) }
+            return
+        }
         if (game?.canContinue(now()) == true) {
             AlertDialog.Builder(this)
                 .setTitle("Start a new ${difficulty.label.lowercase()} game?")
@@ -520,13 +550,23 @@ class SudokuActivity : AppCompatActivity() {
         }
     }
 
+    private fun Game.awaitsCompletion() = !finished && !hasBlank && mistakes().isEmpty()
+
     private fun showGame() {
-        game?.let {
-            it.paused = false
-            it.changeEntryOrder(appearance.entryOrder)
+        val active = game ?: return renderHome()
+        if (legacyImportNeedsRetry) {
+            confirmPlayingWithoutLegacyImport(::showGame)
+            return
         }
+        active.paused = false
+        active.changeEntryOrder(appearance.entryOrder)
         renderGame()
-        if (foreground) resumeScreen()
+        if (active.awaitsCompletion()) {
+            checkCompleted(active)
+            updateGame()
+        } else if (foreground) {
+            resumeScreen()
+        }
     }
 
     private fun renderGame() {
@@ -689,8 +729,7 @@ class SudokuActivity : AppCompatActivity() {
         val changed = change(active)
         if (changed || cancelOnSelection) cancelHint()
         if (changed) {
-            saveGame()
-            if (!active.hasBlank) checkCompleted(active)
+            if (active.hasBlank) saveGame() else checkCompleted(active)
         }
         updateGame()
     }
@@ -698,15 +737,19 @@ class SudokuActivity : AppCompatActivity() {
     private fun checkCompleted(active: Game) {
         val mistakes = active.mistakes().size
         if (mistakes > 0) {
+            saveGame()
             showMistakes(mistakes)
             return
         }
-        val firstWin = active.finish(now())
+        val completedAt = now()
+        val firstWin = active.finish(completedAt)
+        val elapsedSeconds = active.elapsed(completedAt) / 1000
         updateScreenTimeout()
         val best = if (firstWin) {
             val record = records.getValue(active.puzzle.difficulty)
-            record.win(active.elapsed(now()) / 1000, System.currentTimeMillis()).also {
-                store.recordWin(active, now(), records)
+            record.win(elapsedSeconds, System.currentTimeMillis()).also {
+                lastSaveTime = completedAt
+                store.recordWin(active, completedAt, records)
             }
         } else {
             saveGame()
@@ -714,7 +757,7 @@ class SudokuActivity : AppCompatActivity() {
         }
         AlertDialog.Builder(this)
             .setTitle(if (best) "New personal best" else "Puzzle solved")
-            .setMessage("${active.puzzle.difficulty.label} · ${formatTime(active.elapsed(now()) / 1000)}")
+            .setMessage("${active.puzzle.difficulty.label} · ${formatTime(elapsedSeconds)}")
             .setPositiveButton("Home") { _, _ -> showHome() }
             .setNegativeButton("View board", null)
             .showThemed()

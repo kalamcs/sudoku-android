@@ -11,6 +11,7 @@ import android.graphics.drawable.ColorDrawable
 import android.os.SystemClock
 import android.util.TypedValue
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -51,16 +52,31 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.google.firebase.FirebaseApp
 import org.hamcrest.Matcher
 import org.hamcrest.Matchers.allOf
+import org.hamcrest.Matchers.anyOf
 import org.hamcrest.Matchers.not
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.math.roundToInt
 
 @RunWith(AndroidJUnit4::class)
 class NativeGameTest {
+    private val appearanceStore by lazy { AppearanceStore(InstrumentationRegistry.getInstrumentation().targetContext) }
+    private lateinit var initialAppearance: AppearanceSettings
+
+    @Before fun setInputPreferences() {
+        initialAppearance = appearanceStore.load()
+        appearanceStore.save(initialAppearance.copy(keypadLayout = KeypadLayout.AUTO, entryOrder = EntryOrder.CELL_FIRST))
+    }
+
+    @After fun restoreInputPreferences() {
+        appearanceStore.save(initialAppearance)
+    }
+
     @Test fun everyDifficultyCanCreateAPuzzleInTheInstalledApp() {
         val assets = InstrumentationRegistry.getInstrumentation().targetContext.assets
         for (difficulty in Difficulty.entries) {
@@ -221,6 +237,28 @@ class NativeGameTest {
             onView(withText(solution[0].toString())).perform(scrollTo(), click())
             onView(withText("Puzzle solved")).check(matches(isDisplayed()))
             assertEquals(recorded, store.records().getValue(Difficulty.EASY))
+        }
+    }
+
+    @Test fun restoredCompletePuzzleRecordsTheWinOnce() {
+        val store = GameStore(InstrumentationRegistry.getInstrumentation().targetContext)
+        val solution = checkNotNull(Sudoku.solve(checkNotNull(Sudoku.decode(Guide.PROOF_BOARD))))
+        val givens = solution.copyOf().apply { this[0] = 0 }
+        val before = store.records().getValue(Difficulty.EASY).wins
+        store.save(Game(Puzzle(Difficulty.EASY, givens, solution), values = solution.copyOf(), elapsedMs = 11_000),
+            SystemClock.elapsedRealtime())
+
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(anyOf(withText("New personal best"), withText("Puzzle solved")))
+                .inRoot(isDialog()).check(matches(isDisplayed()))
+            assertEquals(before + 1, store.records().getValue(Difficulty.EASY).wins)
+            onView(withText("Home")).inRoot(isDialog()).perform(click())
+        }
+
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Start New Puzzle")).check(matches(isDisplayed()))
+            onView(withText("Continue Puzzle")).check(doesNotExist())
+            assertEquals(before + 1, store.records().getValue(Difficulty.EASY).wins)
         }
     }
 
@@ -787,6 +825,27 @@ class NativeGameTest {
             onView(withContentDescription("Reset zoom")).check(matches(isDisplayed()))
             onView(isAssignableFrom(BoardView::class.java)).perform(scrollTo(), pinch(out = false))
             onView(withContentDescription("Reset zoom")).check(matches(not(isDisplayed())))
+        }
+    }
+
+    @Test fun keyboardMovesBetweenVirtualCellsAndSelectsWithoutTouchingTheBoard() {
+        installFixture()
+        ActivityScenario.launch(SudokuActivity::class.java).use {
+            onView(withText("Continue Puzzle")).perform(click())
+            onView(isAssignableFrom(BoardView::class.java)).perform(scrollTo()).check { view, error ->
+                if (error != null) throw error
+                view.isFocusableInTouchMode = true
+                assertTrue(view.requestFocus(View.FOCUS_FORWARD))
+                val provider = checkNotNull(view.accessibilityNodeProvider)
+                assertTrue(provider.createAccessibilityNodeInfo(0)?.isFocused == true)
+                repeat(2) {
+                    assertTrue(view.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT)))
+                }
+                assertTrue(provider.createAccessibilityNodeInfo(2)?.isFocused == true)
+                assertFalse(provider.createAccessibilityNodeInfo(2)?.isSelected == true)
+                assertTrue(view.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)))
+                assertTrue(provider.createAccessibilityNodeInfo(2)?.isSelected == true)
+            }
         }
     }
 
