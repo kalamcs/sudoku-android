@@ -131,13 +131,6 @@ internal class GamePalette(
     val successInk = opaque(if (dark) 0x9ae7bd else 0x20583f)
     val gridLine = blend(surface, ink, if (dark) .28f else .26f)
     val boxBorder = blend(surface, ink, .89f)
-
-    fun difficultyAccent(difficulty: Difficulty) = opaque(when (difficulty) {
-        Difficulty.EASY -> if (dark) 0x52dac1 else 0x22b9a0
-        Difficulty.MEDIUM -> if (dark) 0x65b4ff else 0x258cf0
-        Difficulty.HARD -> if (dark) 0xb289ff else 0x8956eb
-        Difficulty.EXTREME -> if (dark) 0xff89b8 else 0xe4508c
-    })
 }
 
 private fun colors(dark: Boolean, page: Int, board: Int, accent: Int, related: Int, ink: Int) =

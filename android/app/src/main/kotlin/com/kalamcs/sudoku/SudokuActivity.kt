@@ -378,7 +378,7 @@ class SudokuActivity : AppCompatActivity() {
                 minimumHeight = ui.dp(68)
                 setPadding(ui.dp(2), ui.dp(9), ui.dp(2), ui.dp(8))
                 letterSpacing = 0f
-                setCompoundDrawablesRelative(null, difficultyBars(difficulty, 25), null, null)
+                setCompoundDrawablesRelative(null, difficultyIcon(difficulty, 39, 26), null, null)
                 compoundDrawableTintList = null
                 compoundDrawablePadding = ui.dp(5)
                 background = ui.dashboardPress(ui.dashboardSurface(13))
@@ -421,9 +421,15 @@ class SudokuActivity : AppCompatActivity() {
         setOnClickListener { showGame() }
     }
 
-    private fun difficultyBars(difficulty: Difficulty, size: Int) = DifficultyBars(difficulty, ui.palette).apply {
-        setBounds(0, 0, ui.dp(size), ui.dp(size))
-    }
+    private fun difficultyIcon(difficulty: Difficulty, width: Int, height: Int) = ui.icon(
+        when (difficulty) {
+            Difficulty.EASY -> R.drawable.ic_difficulty_easy
+            Difficulty.MEDIUM -> R.drawable.ic_difficulty_medium
+            Difficulty.HARD -> R.drawable.ic_difficulty_hard
+            Difficulty.EXTREME -> R.drawable.ic_difficulty_extreme
+        },
+        width, height,
+    )
 
     private fun homeStats(): LinearLayout {
         val stats = ui.card(8).apply {
@@ -468,7 +474,7 @@ class SudokuActivity : AppCompatActivity() {
             }
             addRow(listOf(
                 ui.text(difficulty.label, 13, bold = true).apply {
-                    setCompoundDrawablesRelative(difficultyBars(difficulty, 17), null, null, null)
+                    setCompoundDrawablesRelative(difficultyIcon(difficulty, 18, 12), null, null, null)
                     compoundDrawablePadding = ui.dp(3)
                 },
                 ui.text(record.wins.toString(), 15, bold = true),

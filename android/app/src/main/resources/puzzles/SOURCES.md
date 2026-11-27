@@ -62,4 +62,5 @@ done
 
 The `cmp` commands check reproducibility. After an intentional bank update,
 copy the TSV and packed files into their respective directories and run
-`npm test` to verify the packaged data and its solutions.
+`./android/gradlew -p android :app:testDebugUnitTest` to verify the packaged data
+and its solutions.

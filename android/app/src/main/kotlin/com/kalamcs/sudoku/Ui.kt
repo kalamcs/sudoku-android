@@ -149,9 +149,10 @@ internal class Ui(private val context: Context) {
         setOnClickListener { onClick() }
     }
 
-    fun icon(@DrawableRes resource: Int, size: Int) = AppCompatResources.getDrawable(context, resource)?.mutate()?.apply {
-        setBounds(0, 0, dp(size), dp(size))
-    }
+    fun icon(@DrawableRes resource: Int, width: Int, height: Int = width) =
+        AppCompatResources.getDrawable(context, resource)?.mutate()?.apply {
+            setBounds(0, 0, dp(width), dp(height))
+        }
 
     fun styleGameAction(button: AppCompatButton, selected: Boolean = false, shortcut: Boolean = false) {
         styleButton(button, when {
