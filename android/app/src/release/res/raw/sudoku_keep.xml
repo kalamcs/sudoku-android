@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (c) 2026 Kalam Shah -->
+<!-- SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 -->
+<!-- The OSS licenses plugin generates these resources without code references. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/third_party_licenses,@raw/third_party_license_metadata" />

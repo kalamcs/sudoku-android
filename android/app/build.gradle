@@ -1,0 +1,75 @@
+// Copyright (c) 2026 Kalam Shah
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
+apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
+apply plugin: 'com.google.android.gms.oss-licenses-plugin'
+
+if (file('google-services.json').exists()) {
+    apply plugin: 'com.google.gms.google-services'
+}
+
+def projectLicenseAssets = layout.buildDirectory.dir('generated/projectLicenseAssets')
+def copyProjectLicense = tasks.register('copyProjectLicense', Copy) {
+    from(rootProject.file('../LICENSE'), rootProject.file('../NOTICE'))
+    into(projectLicenseAssets)
+}
+
+android {
+    namespace = "com.kalamcs.sudoku"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.kalamcs.sudoku"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 2
+        versionName "1.1"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+    buildFeatures {
+        buildConfig true
+    }
+    sourceSets.main.assets.srcDir(projectLicenseAssets)
+    sourceSets.test.resources.srcDir('src/main/assets')
+    androidResources {
+        noCompress += 'sudoku'
+    }
+    packaging {
+        resources.excludes += 'puzzles/se-templates.tsv'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn(copyProjectLicense)
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
+dependencies {
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.core:core:$androidxCoreVersion"
+    implementation 'androidx.customview:customview:1.2.0'
+    // Later Auth releases use Kotlin metadata newer than this project’s compiler.
+    implementation platform('com.google.firebase:firebase-bom:34.12.0')
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-firestore'
+    testImplementation "junit:junit:$junitVersion"
+    testImplementation 'org.json:json:20250517'
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+}
